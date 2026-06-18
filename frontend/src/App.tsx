@@ -510,6 +510,19 @@ export default function App() {
     checkAuth();
   }, []);
 
+  // Check for error parameters in URL on mount
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const errorParam = params.get('error');
+    if (errorParam) {
+      showMsg(`ログインエラー: ${errorParam}`, 'error');
+      // Clean up the error query parameter from the browser URL bar
+      const url = new URL(window.location.href);
+      url.searchParams.delete('error');
+      window.history.replaceState({}, '', url.toString());
+    }
+  }, []);
+
   // Trigger silent registration once turnstileToken is available (or fallback after timeout)
   useEffect(() => {
     if (authStatus !== 'authenticating') return;
