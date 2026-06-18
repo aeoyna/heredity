@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { motion, useMotionValue, useTransform } from 'framer-motion';
 import type { PanInfo } from 'framer-motion';
 
@@ -13,6 +13,7 @@ export const SwipeCard: React.FC<SwipeCardProps> = ({ children, onSwipe, isActiv
   // Motion values for tracking drag position
   const x = useMotionValue(0);
   const y = useMotionValue(0);
+  const pointerDownTimeRef = useRef<number>(0);
 
   // Map horizontal position to rotation and opacity
   const rotate = useTransform(x, [-200, 200], [-30, 30]);
@@ -55,8 +56,16 @@ export const SwipeCard: React.FC<SwipeCardProps> = ({ children, onSwipe, isActiv
       onDragEnd={handleDragEnd}
       whileDrag={{ scale: 1.05 }}
       transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+      onPointerDown={() => {
+        pointerDownTimeRef.current = Date.now();
+      }}
       onTap={() => {
         if (isActive && onTap) {
+          // Check that it's a quick tap, not a long press (held for >= 500ms)
+          const duration = Date.now() - pointerDownTimeRef.current;
+          if (duration >= 500) {
+            return;
+          }
           // Verify that the card was not dragged.
           // x and y track the translation offsets. If they are larger than 10px, it is a drag, not a tap.
           const dragX = Math.abs(x.get());

@@ -17,3 +17,13 @@ frontend/.vite
 
 .DS_Store
 Thumbs.db
+
+# Local database dumps
+backend/db/local_dump.sql
+
+# Agent files
+.agents/
+*/.agents/
+skills-lock.json
+*/skills-lock.json
+

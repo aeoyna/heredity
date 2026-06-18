@@ -1,14 +1,21 @@
 {
-  "name": "heredity-backend",
+  "name": "heredity",
   "main": "src/index.ts",
   "compatibility_date": "2024-03-01",
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "project_x_db",
-      "database_id": "00000000-0000-0000-0000-000000000000"
+      "database_id": "670151e9-9023-4e27-8a36-71c8f3abb508"
     }
   ],
+  "vars": {
+    "GOOGLE_CLIENT_ID": "383409579985-gv48qltpgbimv6csmjhqveh1chr9gt2k.apps.googleusercontent.com"
+  },
+  "assets": {
+    "directory": "../frontend/dist",
+    "binding": "ASSETS"
+  },
   "triggers": {
     "crons": [
       "0 * * * *"

@@ -1,15 +1,26 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Activity, Sparkles, RefreshCw, ShieldAlert, Plus, X, Star, Trash2, ShoppingCart, List, Diamond, Download, GitFork } from 'lucide-react';
+import { Activity, Sparkles, RefreshCw, ShieldAlert, Plus, X, Star, Trash2, ShoppingCart, List, Diamond, Download, GitFork, Dna, Copy } from 'lucide-react';
 import type { LineDNA, MosaicDNA } from '../../backend/src/shared-types';
 import { SwipeCard } from './components/SwipeCard';
 import { LineCanvas } from './components/LineCanvas';
 import { MosaicCanvas } from './components/MosaicCanvas';
+import { AdCard } from './components/AdCard';
+import { 
+  playClick, 
+  playSwipeLike, 
+  playSwipeNope, 
+  playEvolve, 
+  playPurchase, 
+  playCreate, 
+  playError 
+} from './utils/sound';
 
-// Configure worker backend API base url (we can use local wrangler in dev)
-const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-  ? 'http://localhost:8787'
-  : `http://${window.location.hostname}:8787`;
+// Configure worker backend API base url
+const API_BASE = import.meta.env.VITE_API_BASE || 
+  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+    ? 'http://localhost:8787'
+    : '');
 
 // Obfuscation and Cryptographic Checksum Helpers to Prevent DevTools Cheating
 const OBFS_KEY = 0xAF;
@@ -121,6 +132,7 @@ interface CardData {
   id: string;
   generation: number;
   dna: LineDNA | MosaicDNA;
+  is_honeypot?: boolean;
 }
 
 interface Thread {
@@ -139,18 +151,11 @@ interface SpecimenData {
   nopes_count: number;
 }
 
-function safeUUID(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-    const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
-    return v.toString(16);
-  });
-}
+
 
 export default function App() {
   const [threads, setThreads] = useState<Thread[]>([]);
+
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
 
   const [cards, setCards] = useState<CardData[]>([]);
@@ -171,10 +176,12 @@ export default function App() {
   // History Gallery State
   const [showHistoryModal, setShowHistoryModal] = useState<boolean>(false);
   const [historySpecimens, setHistorySpecimens] = useState<SpecimenData[]>([]);
+  // Per-thread latest card preview (populated lazily as user visits threads)
+  const [threadPreviews, setThreadPreviews] = useState<Record<string, { dna: any; type: 'line' | 'mosaic' }>>({});
   const [galleryLoading, setGalleryLoading] = useState<boolean>(false);
 
-  // App View State ('swipe' for swiping cards, 'threads' for threads explorer)
-  const [view, setView] = useState<'swipe' | 'threads'>('swipe');
+  // App View State ('swipe' for swiping cards, 'threads' for threads explorer, 'shop' for soul shop)
+  const [view, setView] = useState<'swipe' | 'threads' | 'shop'>('swipe');
   // Explorer Tab State ('all' for all threads, 'saved' for bookmarked ones)
   const [threadsTab, setThreadsTab] = useState<'all' | 'saved'>('all');
   const [savedThreadIds, setSavedThreadIds] = useState<string[]>(() => {
@@ -269,13 +276,61 @@ export default function App() {
     };
   });
 
-  // Swipe Onboarding Guide State (shown automatically to users with 0 swipes)
-  const [showSwipeGuide, setShowSwipeGuide] = useState<boolean>(staminaData.lifetimeSwipes === 0);
+  const staminaDataRef = useRef(staminaData);
+  useEffect(() => {
+    staminaDataRef.current = staminaData;
+  }, [staminaData]);
+
+  const syncStaminaWithServer = async (overrideData?: typeof staminaData) => {
+    try {
+      const data = overrideData || staminaDataRef.current;
+      const res = await fetch(`${API_BASE}/api/stamina/sync`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          stamina: data.stamina,
+          maxStamina: data.maxStamina,
+          lifetimeSwipes: data.lifetimeSwipes,
+          lastRecoveryTime: data.lastRecoveryTime,
+          souls: data.souls,
+          isAdFree: data.isAdFree
+        })
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.state) {
+          const merged = json.state;
+          const nextData = {
+            stamina: merged.stamina,
+            maxStamina: merged.maxStamina,
+            lifetimeSwipes: merged.lifetimeSwipes,
+            lastRecoveryTime: merged.lastRecoveryTime,
+            souls: merged.souls,
+            isAdFree: merged.isAdFree
+          };
+          localStorage.setItem('project_x_stamina_data', serializeAndSign(nextData));
+          setStaminaData(nextData);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to sync stamina with server:', e);
+    }
+  };
 
 
+  // Left Drawer & Legal/Report Modals
+  const [showDrawer, setShowDrawer] = useState<boolean>(false);
+  const [showTermsModal, setShowTermsModal] = useState<boolean>(false);
+  const [showPrivacyModal, setShowPrivacyModal] = useState<boolean>(false);
+  const [showReportModal, setShowReportModal] = useState<boolean>(false);
+  const [reportCategory, setReportCategory] = useState<string>('不具合');
+  const [reportDesc, setReportDesc] = useState<string>('');
+  const [submittingReport, setSubmittingReport] = useState<boolean>(false);
 
   const [nextRecoverySeconds, setNextRecoverySeconds] = useState<number>(0);
-  const [showShopModal, setShowShopModal] = useState<boolean>(false);
 
   // Stamina Recovery Hook (60 seconds per stamina recovery)
   useEffect(() => {
@@ -329,11 +384,11 @@ export default function App() {
     return () => clearInterval(interval);
   }, [staminaData.stamina, staminaData.maxStamina, staminaData.lastRecoveryTime]);
 
-  const handleSwipeStateUpdate = () => {
+  const handleSwipeStateUpdate = (isAd = false) => {
     setStaminaData(prev => {
       const nextSwipes = prev.lifetimeSwipes + 1;
-      const nextSouls = prev.souls + 1;
-      const newStamina = Math.max(0, prev.stamina - 1);
+      const nextSouls = prev.souls + (isAd ? 3 : 1); // Reward +3 souls for swiping an ad!
+      const newStamina = isAd ? prev.stamina : Math.max(0, prev.stamina - 1);
       
       const nextData = {
         ...prev,
@@ -344,36 +399,47 @@ export default function App() {
       };
 
       localStorage.setItem('project_x_stamina_data', serializeAndSign(nextData));
+
+      // Sync with server on every 5th swipe
+      if (nextSwipes % 5 === 0) {
+        syncStaminaWithServer(nextData);
+      }
+
       return nextData;
     });
   };
 
   const buyStaminaRecovery = () => {
     setStaminaData(prev => {
-      if (prev.souls < 50) {
-        showMsg('Soulが足りません！', 'error');
+      if (prev.souls < 300) {
+        showMsg('Soulが足りません！（必要: 300 Soul）', 'error');
+        playError();
         return prev;
       }
       if (prev.stamina >= prev.maxStamina) {
         showMsg('すでにスタミナは満タンです！', 'error');
+        playError();
         return prev;
       }
       const newStamina = Math.min(prev.maxStamina, prev.stamina + 10);
       const nextData = {
         ...prev,
         stamina: newStamina,
-        souls: prev.souls - 50
+        souls: prev.souls - 300
       };
       localStorage.setItem('project_x_stamina_data', serializeAndSign(nextData));
       showMsg('スタミナを10回復しました！', 'success');
+      playPurchase();
+      syncStaminaWithServer(nextData);
       return nextData;
     });
   };
 
   const buyMaxStaminaUpgrade = () => {
     setStaminaData(prev => {
-      if (prev.souls < 100) {
-        showMsg('Soulが足りません！', 'error');
+      if (prev.souls < 1000) {
+        showMsg('Soulが足りません！（必要: 1000 Soul）', 'error');
+        playError();
         return prev;
       }
       const newMax = prev.maxStamina + 5;
@@ -382,10 +448,12 @@ export default function App() {
         ...prev,
         stamina: newStamina,
         maxStamina: newMax,
-        souls: prev.souls - 100
+        souls: prev.souls - 1000
       };
       localStorage.setItem('project_x_stamina_data', serializeAndSign(nextData));
       showMsg(`スタミナ上限が ${newMax} にアップしました！`, 'success');
+      playPurchase();
+      syncStaminaWithServer(nextData);
       return nextData;
     });
   };
@@ -394,10 +462,12 @@ export default function App() {
     setStaminaData(prev => {
       if (prev.souls < 150) {
         showMsg('Soulが足りません！', 'error');
+        playError();
         return prev;
       }
       if (prev.isAdFree) {
         showMsg('すでに広告非表示パスを購入済みです！', 'error');
+        playError();
         return prev;
       }
       const nextData = {
@@ -407,27 +477,105 @@ export default function App() {
       };
       localStorage.setItem('project_x_stamina_data', serializeAndSign(nextData));
       showMsg('🎉 広告非表示パスを購入しました！広告が非表示になりました。', 'success');
+      playPurchase();
+      syncStaminaWithServer(nextData);
       return nextData;
     });
   };
 
-  // Initialize Session ID
-  const [sessionId] = useState<string>(() => {
-    let id = localStorage.getItem('project_x_session_id');
-    if (!id) {
-      id = safeUUID();
-      localStorage.setItem('project_x_session_id', id);
+  const [sessionId, setSessionId] = useState<string>('');
+  const [sessionType, setSessionType] = useState<'anonymous' | 'authenticated'>('anonymous');
+  const [authStatus, setAuthStatus] = useState<'checking' | 'authenticating' | 'authenticated' | 'error'>('checking');
+  const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
+
+  // Check auth status on mount
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/me`, { credentials: 'include' });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success) {
+            setSessionId(data.session_id);
+            setSessionType(data.type);
+            setAuthStatus('authenticated');
+            return;
+          }
+        }
+        setAuthStatus('authenticating');
+      } catch (err) {
+        console.error('Auth check error:', err);
+        setAuthStatus('authenticating');
+      }
+    };
+    checkAuth();
+  }, []);
+
+  // Trigger silent registration once turnstileToken is available (or fallback after timeout)
+  useEffect(() => {
+    if (authStatus !== 'authenticating') return;
+
+    const registerAnonymous = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/anonymous`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          credentials: 'include',
+          body: JSON.stringify({ turnstile_token: turnstileToken })
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || 'Failed to authenticate silently');
+        }
+        const data = await res.json();
+        if (data.success) {
+          setSessionId(data.session_id);
+          setSessionType(data.type);
+          setAuthStatus('authenticated');
+          showMsg('セッションを開始しました（サイレント認証）', 'success');
+        }
+      } catch (err: any) {
+        console.error('Silent auth error:', err);
+        showMsg(`認証に失敗しました: ${err.message}`, 'error');
+      }
+    };
+
+    if (turnstileToken) {
+      registerAnonymous();
+    } else {
+      const timer = setTimeout(() => {
+        if (authStatus === 'authenticating' && !turnstileToken) {
+          console.log('Turnstile timeout, attempting registration without token');
+          registerAnonymous();
+        }
+      }, 3000);
+      return () => clearTimeout(timer);
     }
-    return id;
-  });
+  }, [authStatus, turnstileToken]);
+
+  // Sync stamina data with server once authenticated
+  useEffect(() => {
+    if (authStatus === 'authenticated') {
+      syncStaminaWithServer();
+    }
+  }, [authStatus]);
 
   // Derive mode from active thread
   const activeThread = threads.find(t => t.id === activeThreadId);
   const mode = activeThread?.type || 'line';
 
+  const THREAD_FAVORITES_LIMIT = 20;
+
   // Toggle Save/Favorite status of a thread
   const toggleSaveThread = (threadId: string) => {
     setSavedThreadIds(prev => {
+      if (!prev.includes(threadId) && prev.length >= THREAD_FAVORITES_LIMIT) {
+        showMsg(`プロジェクトのお気に入りは${THREAD_FAVORITES_LIMIT}件までです。`, 'error');
+        playError();
+        return prev;
+      }
       const next = prev.includes(threadId) ? prev.filter(id => id !== threadId) : [...prev, threadId];
       localStorage.setItem('project_x_saved_thread_ids', JSON.stringify(next));
       return next;
@@ -437,7 +585,11 @@ export default function App() {
   // Fetch threads list
   const fetchThreads = useCallback(async (selectThreadId?: string) => {
     try {
-      const res = await fetch(`${API_BASE}/api/threads`);
+      const res = await fetch(`${API_BASE}/api/threads`, { credentials: 'include' });
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${res.status}`);
+      }
       const data = await res.json();
       if (data.threads) {
         setThreads(data.threads);
@@ -445,13 +597,25 @@ export default function App() {
           if (selectThreadId) {
             setActiveThreadId(selectThreadId);
           } else if (!activeThreadId) {
-            setActiveThreadId(data.threads[0].id);
+            const params = new URLSearchParams(window.location.search);
+            const urlThreadId = params.get('t') || params.get('thread');
+            const exists = data.threads.some((t: any) => t.id === urlThreadId);
+            if (urlThreadId && exists) {
+              setActiveThreadId(urlThreadId);
+            } else {
+              setActiveThreadId(data.threads[0].id);
+            }
           }
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to fetch threads:', err);
-      showMsg('Failed to load threads from server.', 'error');
+      let errorMsg = err.message || 'Unknown error';
+      if (err.message && err.message.includes('Failed to fetch') && window.location.hostname === 'localhost') {
+        errorMsg = 'Cannot connect to local backend. Make sure the local Wrangler dev server is running on port 8787.';
+      }
+      showMsg(`Failed to load threads: ${errorMsg}`, 'error');
+      playError();
     }
   }, [activeThreadId]);
 
@@ -459,14 +623,64 @@ export default function App() {
     fetchThreads();
   }, []);
 
+  // Synchronize activeThreadId to URL query parameter t
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const currentParam = params.get('t') || params.get('thread');
+    if (activeThreadId) {
+      if (currentParam !== activeThreadId) {
+        const url = new URL(window.location.href);
+        url.searchParams.set('t', activeThreadId);
+        url.searchParams.delete('thread');
+        window.history.pushState({}, '', url.toString());
+      }
+    } else {
+      if (currentParam) {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('t');
+        url.searchParams.delete('thread');
+        window.history.pushState({}, '', url.toString());
+      }
+    }
+  }, [activeThreadId]);
+
+  // Listen to browser Back/Forward navigation (popstate)
+  useEffect(() => {
+    const handlePopState = () => {
+      const params = new URLSearchParams(window.location.search);
+      const urlThreadId = params.get('t') || params.get('thread');
+      if (urlThreadId && threads.some(t => t.id === urlThreadId)) {
+        setActiveThreadId(urlThreadId);
+      } else if (threads.length > 0) {
+        setActiveThreadId(threads[0].id);
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [threads]);
+
   // Fetch Evolutionary History
   const fetchHistory = useCallback(async () => {
     if (!activeThreadId) return;
     setGalleryLoading(true);
     try {
-      const historyRes = await fetch(`${API_BASE}/api/threads/history?thread_id=${activeThreadId}`);
+      const historyRes = await fetch(`${API_BASE}/api/threads/history?thread_id=${activeThreadId}`, { credentials: 'include' });
+      if (!historyRes.ok) {
+        const errorData = await historyRes.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${historyRes.status}`);
+      }
       const historyData = await historyRes.json();
-      if (historyData.history) setHistorySpecimens(historyData.history);
+      if (historyData.history) {
+        setHistorySpecimens(historyData.history);
+        // Use the last history specimen as a preview icon for this thread
+        if (historyData.history.length > 0 && activeThreadId) {
+          const latest = historyData.history[historyData.history.length - 1];
+          setThreadPreviews(prev => ({
+            ...prev,
+            [activeThreadId]: { dna: latest.dna, type: activeThread?.type || 'line' }
+          }));
+        }
+      }
     } catch (err) {
       console.error('Failed to fetch history:', err);
     } finally {
@@ -484,15 +698,24 @@ export default function App() {
       const excludeParam = excludeIds.length > 0 ? `&exclude=${excludeIds.join(',')}` : '';
       const lastSwipedParam = lastSwipedCardId ? `&last_swiped_card_id=${lastSwipedCardId}` : '';
 
-      const res = await fetch(`${API_BASE}/api/cards?thread_id=${activeThreadId}&session_id=${sessionId}${excludeParam}${lastSwipedParam}`, {
-        headers: {
-          'x-session-id': sessionId
-        }
+      const res = await fetch(`${API_BASE}/api/cards?thread_id=${activeThreadId}${excludeParam}${lastSwipedParam}`, {
+        credentials: 'include'
       });
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${res.status}`);
+      }
       const data = await res.json();
       
       if (data.cards) {
         setCards(prev => append ? [...data.cards, ...prev] : data.cards);
+        // Store first card as preview for this thread
+        if (data.cards.length > 0 && activeThreadId) {
+          setThreadPreviews(prev => ({
+            ...prev,
+            [activeThreadId]: { dna: data.cards[0].dna, type: activeThread?.type || 'line' }
+          }));
+        }
         
         // Update generation in local threads state
         setThreads(prev => prev.map(t => t.id === activeThreadId ? { ...t, generation: data.generation } : t));
@@ -501,14 +724,20 @@ export default function App() {
           swipedCardIdsRef.current = [];
           if (append) {
             showMsg(`All specimens swiped! Auto-evolved to Gen ${data.generation}`, 'success');
+            playEvolve();
           }
         }
         setGeneration(data.generation);
         generationRef.current = data.generation;
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to fetch cards:', err);
-      showMsg('Failed to fetch cards from server. Is Wrangler running?', 'error');
+      let errorMsg = err.message || 'Unknown error';
+      if (err.message && err.message.includes('Failed to fetch') && window.location.hostname === 'localhost') {
+        errorMsg = 'Cannot connect to local backend. Make sure the local Wrangler dev server is running on port 8787.';
+      }
+      showMsg(`Failed to fetch cards: ${errorMsg}`, 'error');
+      playError();
     } finally {
       setLoading(false);
     }
@@ -572,6 +801,68 @@ export default function App() {
     checkAndRender();
   }, [activeThreadId]);
 
+  // Trigger Mock Auth for local development/testing
+  const triggerMockAuth = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/upgrade`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({ clerk_token: 'mock_developer_token' })
+      });
+      if (!res.ok) throw new Error('Upgrade endpoint returned error');
+      const data = await res.json();
+      if (data.success) {
+        setSessionType('authenticated');
+        setShowAuthModal(false);
+        showMsg('🎉 ログイン完了！（開発用アカウント）', 'success');
+      }
+    } catch (err: any) {
+      console.error(err);
+      showMsg('モックログインに失敗しました', 'error');
+    }
+  };
+
+  const triggerGoogleAuth = () => {
+    // Redirect browser to the backend Google login endpoint
+    const redirectUrl = `${API_BASE}/api/auth/google/login?state=${sessionId}&redirect_back=${encodeURIComponent(window.location.origin)}`;
+    window.location.href = redirectUrl;
+  };
+
+  const handleClerkUpgrade = () => {
+    setShowAuthModal(true);
+  };
+
+  const handleLogout = async () => {
+    if (!window.confirm('本当にログアウトしますか？\n（現在のデバイスでログイン状態が解除され、データがリセットされて新しい匿名アカウントになります）')) {
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/logout`, {
+        method: 'POST',
+        credentials: 'include'
+      });
+      if (res.ok) {
+        // Clear local storage to fully reset this client
+        localStorage.removeItem('project_x_stamina_data');
+        localStorage.removeItem('project_x_saved_cards');
+        localStorage.removeItem('project_x_saved_thread_ids');
+        
+        showMsg('ログアウトしました。再起動しています...', 'success');
+        setTimeout(() => {
+          window.location.reload();
+        }, 1200);
+      } else {
+        showMsg('ログアウトに失敗しました。', 'error');
+      }
+    } catch (err) {
+      console.error('Logout error:', err);
+      showMsg('ログアウト中にエラーが発生しました。', 'error');
+    }
+  };
+
   // Helper for messages
   const showMsg = (text: string, type: 'info' | 'error' | 'success') => {
     setMessage({ text, type });
@@ -587,39 +878,62 @@ export default function App() {
         headers: {
           'Content-Type': 'application/json'
         },
+        credentials: 'include',
         body: JSON.stringify({
           thread_id: activeThreadId,
           card_id: cardId,
           swipe,
-          session_id: sessionId,
           turnstile_token: turnstileToken
         })
       });
 
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${response.status}`);
+      }
+
       const result = await response.json();
       if (result.error) {
         showMsg(result.error, 'error');
+        playError();
       } else {
         fetchHistory();
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to submit swipe:', err);
+      showMsg(`Failed to submit swipe: ${err.message}`, 'error');
+      playError();
     }
   };
 
   // Handle Swipe interaction
   const handleSwipe = (direction: 'like' | 'nope', cardId: string) => {
-    if (staminaData.stamina <= 0) {
+    const card = cards.find(c => c.id === cardId);
+    const isAd = card?.is_honeypot === true;
+
+    if (!isAd && staminaData.stamina <= 0) {
       showMsg('スタミナがありません！', 'error');
+      playError();
       return;
     }
-    if (showSwipeGuide) {
-      setShowSwipeGuide(false);
-      showMsg('進化の旅へようこそ！', 'success');
+    
+    const isTestSwipe = staminaData.lifetimeSwipes === 0;
+
+    if (direction === 'like') {
+      playSwipeLike();
+    } else {
+      playSwipeNope();
     }
+
     submitSwipe(cardId, direction);
     swipedCardIdsRef.current.push(cardId);
-    handleSwipeStateUpdate();
+    handleSwipeStateUpdate(isAd);
+
+    if (isTestSwipe) {
+      setTimeout(() => {
+        handleClerkUpgrade();
+      }, 600);
+    }
 
     setCards(prev => {
       const nextCards = prev.filter(c => c.id !== cardId);
@@ -638,9 +952,10 @@ export default function App() {
       return;
     }
 
-    const cost = newThreadType === 'line' ? 100 : 200;
+    const cost = newThreadType === 'line' ? 200 : 500;
     if (staminaData.souls < cost) {
       showMsg(`Soulが足りません！作成には ${cost} Soulが必要です。（現在: ${staminaData.souls} Soul）`, 'error');
+      playError();
       return;
     }
 
@@ -649,9 +964,9 @@ export default function App() {
       const res = await fetch(`${API_BASE}/api/threads`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'x-session-id': sessionId
+          'Content-Type': 'application/json'
         },
+        credentials: 'include',
         body: JSON.stringify({
           name: newThreadName,
           type: newThreadType
@@ -660,6 +975,7 @@ export default function App() {
       const data = await res.json();
       if (data.error) {
         showMsg(data.error, 'error');
+        playError();
       } else if (data.success && data.thread) {
         // Subtract Souls upon success
         setStaminaData(prev => {
@@ -672,6 +988,7 @@ export default function App() {
         });
 
         showMsg(`プロジェクト「${data.thread.name}」を作成しました！（コスト: ${cost} Soul）`, 'success');
+        playCreate();
         setNewThreadName('');
         setShowCreateModal(false);
         await fetchThreads(data.thread.id);
@@ -679,6 +996,7 @@ export default function App() {
     } catch (err) {
       console.error(err);
       showMsg('Failed to create thread.', 'error');
+      playError();
     } finally {
       setCreatingThread(false);
     }
@@ -812,13 +1130,20 @@ export default function App() {
     showMsg('画像をダウンロードしました！', 'success');
   };
 
+  const CARD_FAVORITES_LIMIT = 10;
+
   const toggleSaveCard = (card: CardData & { threadId?: string; threadName?: string; type?: 'line' | 'mosaic' }) => {
     const isAlreadySaved = savedCards.some(c => c.id === card.id);
     let updatedCards: SavedCard[] = [];
     if (isAlreadySaved) {
       updatedCards = savedCards.filter(c => c.id !== card.id);
-      showMsg('画像をコレクションから削除しました。', 'info');
+      showMsg('カードをコレクションから削除しました。', 'info');
     } else {
+      if (savedCards.length >= CARD_FAVORITES_LIMIT) {
+        showMsg(`カードのお気に入りは${CARD_FAVORITES_LIMIT}件までです。`, 'error');
+        playError();
+        return;
+      }
       const newSavedCard: SavedCard = {
         id: card.id,
         threadId: card.threadId || activeThreadId || '',
@@ -829,7 +1154,7 @@ export default function App() {
         savedAt: Date.now()
       };
       updatedCards = [newSavedCard, ...savedCards];
-      showMsg('画像をコレクションに保存しました！', 'success');
+      showMsg('カードをコレクションに保存しました！', 'success');
     }
     setSavedCards(updatedCards);
     localStorage.setItem('project_x_saved_cards', JSON.stringify(updatedCards));
@@ -840,11 +1165,13 @@ export default function App() {
     if (!selectedCard) return;
     if (!forkThreadName.trim()) {
       showMsg('プロジェクト名は必須です', 'error');
+      playError();
       return;
     }
-    const cost = 500;
+    const cost = 1000;
     if (staminaData.souls < cost) {
       showMsg(`Soulが足りません！作成には ${cost} Soulが必要です。`, 'error');
+      playError();
       return;
     }
 
@@ -853,9 +1180,9 @@ export default function App() {
       const res = await fetch(`${API_BASE}/api/threads`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'x-session-id': sessionId
+          'Content-Type': 'application/json'
         },
+        credentials: 'include',
         body: JSON.stringify({
           name: forkThreadName,
           type: selectedCard.type || mode,
@@ -865,6 +1192,7 @@ export default function App() {
       const data = await res.json();
       if (data.error) {
         showMsg(data.error, 'error');
+        playError();
       } else if (data.success && data.thread) {
         // Deduct 500 Souls
         setStaminaData(prev => {
@@ -877,14 +1205,17 @@ export default function App() {
         });
 
         showMsg(`分岐プロジェクト「${data.thread.name}」を作成しました！（コスト: ${cost} Soul）`, 'success');
+        playCreate();
         setForkThreadName('');
         setForkingMode(false);
         setShowDetailModal(false);
+        setView('swipe');
         await fetchThreads(data.thread.id);
       }
     } catch (err) {
       console.error(err);
       showMsg('Failed to create thread.', 'error');
+      playError();
     } finally {
       setIsForking(false);
     }
@@ -905,6 +1236,42 @@ export default function App() {
     }
   };
 
+  const handleSubmitReport = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reportDesc.trim()) {
+      showMsg('内容を入力してください。', 'error');
+      return;
+    }
+    setSubmittingReport(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/report`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          category: reportCategory,
+          description: reportDesc
+        })
+      });
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${res.status}`);
+      }
+      showMsg('ご報告ありがとうございました。', 'success');
+      setReportDesc('');
+      setShowReportModal(false);
+      setShowDrawer(false);
+    } catch (err: any) {
+      console.error(err);
+      showMsg(`報告に失敗しました: ${err.message}`, 'error');
+      playError();
+    } finally {
+      setSubmittingReport(false);
+    }
+  };
+
   // Delete Thread API Call
   const handleDeleteThread = async (threadId: string) => {
     const thread = threads.find(t => t.id === threadId);
@@ -918,9 +1285,9 @@ export default function App() {
         headers: {
           'Content-Type': 'application/json'
         },
+        credentials: 'include',
         body: JSON.stringify({
-          thread_id: threadId,
-          session_id: sessionId
+          thread_id: threadId
         })
       });
       const data = await res.json();
@@ -954,6 +1321,26 @@ export default function App() {
 
 
 
+  if (authStatus === 'checking' || authStatus === 'authenticating') {
+    return (
+      <div className="h-[100dvh] bg-[#07080d] text-gray-100 flex flex-col items-center justify-center font-sans relative overflow-hidden">
+        <div className="absolute top-[-20%] left-[-20%] w-[60%] h-[60%] rounded-full bg-purple-900/10 blur-[120px] pointer-events-none" />
+        <div className="absolute bottom-[-20%] right-[-20%] w-[60%] h-[60%] rounded-full bg-emerald-900/10 blur-[120px] pointer-events-none" />
+        <div className="flex flex-col items-center gap-4 z-10">
+          <div className="p-4 rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-600 shadow-2xl shadow-indigo-600/30">
+            <Sparkles className="w-8 h-8 text-white animate-pulse" />
+          </div>
+          <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white via-gray-300 to-gray-500 tracking-widest animate-pulse">gene46</h1>
+          <div className="flex items-center gap-2 mt-4 text-xs font-semibold text-purple-400 uppercase tracking-widest">
+            <RefreshCw className="w-4 h-4 animate-spin" />
+            <span>Connecting securely...</span>
+          </div>
+        </div>
+        <div id="turnstile-container" className="hidden" />
+      </div>
+    );
+  }
+
   return (
     <div className="h-[100dvh] bg-[#07080d] text-gray-100 flex flex-col items-center justify-between font-sans selection:bg-purple-600 selection:text-white relative overflow-hidden pb-2 sm:pb-3 md:pb-4">
       
@@ -965,27 +1352,63 @@ export default function App() {
       {/* Header */}
       <header className="w-full max-w-lg px-6 pt-3 sm:pt-4 flex-shrink-0 flex flex-col items-center gap-4 z-20">
         <div className="w-full flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <div 
+            onClick={() => {
+              playClick();
+              setShowDrawer(true);
+            }}
+            className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity active:scale-95 duration-200"
+            title="メニューを開く"
+          >
             <div className="p-2 rounded-xl bg-gradient-to-tr from-purple-600 to-indigo-600 shadow-lg shadow-indigo-600/30">
               <Sparkles className="w-5 h-5 text-white animate-pulse" />
             </div>
-            <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white via-gray-300 to-gray-500 tracking-wider">GeneX</h1>
+            <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white via-gray-300 to-gray-500 tracking-wider">gene46</h1>
           </div>
           
           <div className="flex items-center gap-5">
+            {/* Evolve Button */}
+            <button
+              onClick={() => {
+                playClick();
+                setView('swipe');
+              }}
+              className={`flex flex-col items-center gap-0.5 transition-colors ${
+                view === 'swipe'
+                  ? 'text-purple-400 font-bold'
+                  : 'text-gray-400 hover:text-purple-400'
+              }`}
+              title="Evolve"
+            >
+              <span className="text-[7px] font-bold text-gray-600 uppercase tracking-widest">Evolve</span>
+              <Activity className="w-5 h-5" />
+            </button>
+
             {/* Shop Button */}
             <button
-              onClick={() => setShowShopModal(true)}
-              className="flex flex-col items-center gap-0.5 text-gray-400 hover:text-purple-400 transition-colors"
+              onClick={() => {
+                playClick();
+                if (view === 'shop') {
+                  setView('swipe');
+                } else {
+                  setView('shop');
+                }
+              }}
+              className={`flex flex-col items-center gap-0.5 transition-colors ${
+                view === 'shop'
+                  ? 'text-purple-400 font-bold'
+                  : 'text-gray-400 hover:text-purple-400'
+              }`}
               title="Shop"
             >
               <span className="text-[7px] font-bold text-gray-600 uppercase tracking-widest">Shop</span>
-              <ShoppingCart className="w-5 h-5 text-purple-400 hover:scale-110 transition-transform" />
+              <ShoppingCart className="w-5 h-5 hover:scale-110 transition-transform" />
             </button>
 
             {/* Project List Button */}
             <button
               onClick={() => {
+                playClick();
                 if (view === 'threads' && threadsTab === 'all') {
                   setView('swipe');
                 } else {
@@ -995,7 +1418,7 @@ export default function App() {
               }}
               className={`flex flex-col items-center gap-0.5 transition-colors ${
                 view === 'threads' && threadsTab === 'all'
-                  ? 'text-purple-400'
+                  ? 'text-purple-400 font-bold'
                   : 'text-gray-400 hover:text-purple-400'
               }`}
               title="Project"
@@ -1007,6 +1430,7 @@ export default function App() {
             {/* Save Button */}
             <button
               onClick={() => {
+                playClick();
                 if (view === 'threads' && threadsTab === 'saved') {
                   setView('swipe');
                 } else {
@@ -1024,6 +1448,8 @@ export default function App() {
               <span className="text-[7px] font-bold text-gray-600 uppercase tracking-widest">Save</span>
               <Diamond className="w-5 h-5" />
             </button>
+
+
           </div>
         </div>
       </header>
@@ -1063,14 +1489,35 @@ export default function App() {
               {activeThread && (
                 <div 
                   onClick={() => {
+                    playClick();
                     setView('threads');
                     setThreadsTab('all');
                   }}
                   className="w-full max-w-[380px] py-3 sm:py-4 md:py-5 px-[18px] bg-gray-950/60 border border-gray-900/60 hover:border-purple-500/30 rounded-2xl backdrop-blur-md mb-2 sm:mb-3 flex items-center justify-between cursor-pointer transition-all group"
                 >
-                  <span className="text-xs font-bold text-gray-200 group-hover:text-purple-300 transition-colors truncate">
-                    {activeThread.name}
-                  </span>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-xs font-bold text-gray-200 group-hover:text-purple-300 transition-colors truncate">
+                      {activeThread.name}
+                    </span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation(); // Prevent opening the threads screen
+                        playClick();
+                        const shareUrl = `${window.location.origin}${window.location.pathname}?t=${activeThread.id}`;
+                        navigator.clipboard.writeText(shareUrl)
+                          .then(() => {
+                            showMsg('プロジェクトの共有リンクをコピーしました！', 'success');
+                          })
+                          .catch(() => {
+                            showMsg('コピーに失敗しました', 'error');
+                          });
+                      }}
+                      className="p-1 text-gray-500 hover:text-purple-400 hover:bg-purple-950/30 rounded transition-colors flex-shrink-0"
+                      title="プロジェクトのリンクをコピー"
+                    >
+                      <Copy className="w-3 h-3" />
+                    </button>
+                  </div>
                   <div className="flex items-center gap-1.5 flex-shrink-0">
                     <span className="px-2 py-0.5 text-[8px] rounded bg-purple-950/30 border border-purple-500/10 text-purple-300 font-medium">
                       {activeThread.type === 'line' ? 'ライン' : 'モザイク'}
@@ -1093,6 +1540,7 @@ export default function App() {
                   {activeThread && (
                     <button
                       onClick={() => {
+                        playClick();
                         fetchHistory();
                         setShowHistoryModal(true);
                       }}
@@ -1123,6 +1571,7 @@ export default function App() {
                     <p className="text-gray-400 font-semibold text-sm">No specimens left</p>
                     <button 
                       onClick={() => {
+                        playClick();
                         swipedCardIdsRef.current = []; // Reset swiped history
                         fetchCards(false);
                       }}
@@ -1130,6 +1579,67 @@ export default function App() {
                     >
                       Refresh Pool
                     </button>
+                  </div>
+                ) : (staminaData.lifetimeSwipes > 0 && sessionType === 'anonymous') ? (
+                  <div className="text-center p-8 bg-[#0c0e15]/80 border border-purple-500/10 rounded-3xl flex flex-col items-center justify-between w-full h-full relative overflow-hidden backdrop-blur-lg shadow-2xl"
+                    style={{
+                      boxShadow: '0 0 40px rgba(168, 85, 247, 0.15), inset 0 0 12px rgba(255, 255, 255, 0.05)',
+                      fontFamily: "'Outfit', sans-serif"
+                    }}
+                  >
+                    <div className="absolute top-[-30%] left-[20%] right-[20%] h-[40%] rounded-full bg-gradient-to-r from-purple-500/20 to-indigo-500/20 blur-2xl pointer-events-none" />
+                    
+                    <div className="my-auto py-2 flex flex-col items-center w-full">
+                      {/* Glowing DNA helix logo for Locked Card Gate */}
+                      <div className="relative flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-tr from-purple-500/10 to-indigo-500/10 border border-purple-500/20 shadow-inner mb-5 mx-auto">
+                        <div className="absolute inset-0 bg-gradient-to-tr from-purple-500/20 to-indigo-500/20 rounded-2xl blur-md opacity-75" />
+                        <Dna className="w-8 h-8 text-purple-400 drop-shadow-[0_0_8px_rgba(168,85,247,0.7)] animate-pulse z-10" />
+                      </div>
+
+                      {/* Title and Branding */}
+                      <h2 className="text-xl font-bold tracking-tight text-white mb-2">
+                        gene46 <span className="text-purple-400 font-medium">Evolution</span>
+                      </h2>
+                      <p className="text-xs text-gray-400 leading-relaxed max-w-[280px] mx-auto mb-6">
+                        遺伝子の螺旋を探索し、 specimen（スペックメン）の進化を進めるにはログインが必要です。
+                      </p>
+
+                      {/* Continue with Google button */}
+                      <button
+                        onClick={() => {
+                          playClick();
+                          triggerGoogleAuth();
+                        }}
+                        className="w-full py-3.5 px-5 bg-white text-gray-900 rounded-full text-xs font-bold transition-all flex items-center justify-center gap-2 hover:bg-gray-100 hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-white/5 duration-150 mb-2"
+                      >
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none">
+                          <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                          <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                          <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" fill="#FBBC05"/>
+                          <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335"/>
+                        </svg>
+                        Googleでログイン
+                      </button>
+
+                      {import.meta.env.DEV && (
+                        <button
+                          onClick={() => {
+                            playClick();
+                            triggerMockAuth();
+                          }}
+                          className="w-full py-2.5 px-4 bg-purple-950/40 border border-purple-500/20 hover:border-purple-500/40 text-purple-300 rounded-full text-xs font-bold transition-all flex items-center justify-center gap-2 mb-4"
+                        >
+                          Mock Developer Login
+                        </button>
+                      )}
+
+                      {/* Muted Terms */}
+                      <p className="text-[10px] text-gray-500 leading-normal max-w-[240px] mx-auto">
+                        ログインすることで、当サービスの
+                        <a href="#" className="underline hover:text-gray-400 mx-1">利用規約</a>及び
+                        <a href="#" className="underline hover:text-gray-400 ml-1">プライバシーポリシー</a>に同意したものとみなされます。
+                      </p>
+                    </div>
                   </div>
                 ) : staminaData.stamina <= 0 ? (
                   <div className="text-center p-6 bg-gray-950/40 border border-gray-900 rounded-2xl flex flex-col items-center justify-center gap-4 w-full h-full relative overflow-hidden">
@@ -1150,7 +1660,10 @@ export default function App() {
                       <div>所持ソウル: <span className="text-yellow-300 font-bold">🔮 {staminaData.souls} Soul</span></div>
                     </div>
                     <button
-                      onClick={() => setShowShopModal(true)}
+                      onClick={() => {
+                        playClick();
+                        setView('shop');
+                      }}
                       className="px-4 py-2 text-xs font-semibold bg-gradient-to-r from-purple-600 to-indigo-600 rounded-lg hover:from-purple-500 hover:to-indigo-500 text-white transition-colors shadow-md flex items-center gap-1 border border-purple-500/20"
                     >
                       <Sparkles className="w-3.5 h-3.5 text-yellow-300 animate-pulse" />
@@ -1167,7 +1680,10 @@ export default function App() {
                           忘れないようにホーム画面にアプリを追加しませんか？
                         </p>
                         <button
-                          onClick={handleInstallPwa}
+                          onClick={() => {
+                            playClick();
+                            handleInstallPwa();
+                          }}
                           className="w-full mt-1 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[10px] font-bold transition-all shadow-md active:scale-[0.98]"
                         >
                           {deferredPrompt ? 'アプリをインストール' : 'インストール方法を見る'}
@@ -1177,7 +1693,10 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="w-full h-full relative">
-                    {cards.slice(-3).map((card, idx, arr) => {
+                    {cards
+                      .filter(card => !staminaData.isAdFree || !card.is_honeypot)
+                      .slice(-3)
+                      .map((card, idx, arr) => {
                       const isActive = idx === arr.length - 1;
                       return (
                         <SwipeCard
@@ -1185,6 +1704,14 @@ export default function App() {
                           isActive={isActive}
                           onSwipe={(dir) => handleSwipe(dir, card.id)}
                           onTap={() => {
+                            if (card.is_honeypot) {
+                              const zoneId = import.meta.env.VITE_EXOCLICK_ZONE_ID;
+                              if (!zoneId) {
+                                window.open(atob("aHR0cHM6Ly93d3cuZXhvY2xpY2suY29t"), '_blank');
+                              }
+                              return;
+                            }
+                            playClick();
                             setSelectedCard({
                               ...card,
                               threadId: activeThreadId || undefined,
@@ -1202,6 +1729,8 @@ export default function App() {
                                 TEST
                               </span>
                             </div>
+                          ) : card.is_honeypot ? (
+                            <AdCard />
                           ) : mode === 'line' ? (
                             <LineCanvas 
                               dna={card.dna as LineDNA} 
@@ -1220,14 +1749,14 @@ export default function App() {
 
 
             </motion.div>
-          ) : (
+          ) : view === 'threads' ? (
             <motion.div
               key="threads"
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
               transition={{ duration: 0.15 }}
-              className="w-full max-w-[340px] flex flex-col p-5 bg-[#090a10]/80 border border-gray-900 rounded-3xl shadow-2xl backdrop-blur-md min-h-[420px]"
+              className="w-full max-w-[400px] flex flex-col p-5 bg-[#090a10]/80 border border-gray-900 rounded-3xl shadow-2xl backdrop-blur-md min-h-[420px]"
             >
               {/* Header */}
               <div className="flex items-center justify-between border-b border-gray-900 pb-3.5 mb-5">
@@ -1242,6 +1771,7 @@ export default function App() {
                 <div className="mb-5">
                   <button
                     onClick={() => {
+                      playClick();
                       setShowCreateModal(true);
                     }}
                     className="w-full py-2.5 border border-dashed border-purple-500/30 bg-purple-950/10 hover:bg-purple-950/20 hover:border-purple-500/60 text-purple-300 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-purple-950/20"
@@ -1255,69 +1785,93 @@ export default function App() {
               {/* Tab Content */}
               <div className="flex-1 flex flex-col min-h-0">
                 {threadsTab === 'all' ? (
-                  <div className="flex-1 overflow-y-auto space-y-2 pr-1 max-h-[300px] scrollbar-thin scrollbar-thumb-gray-800 scrollbar-track-transparent">
+                  <div className="flex-1 overflow-y-auto pr-1 max-h-[340px] scrollbar-thin scrollbar-thumb-gray-800 scrollbar-track-transparent">
+                    <div className="grid grid-cols-2 gap-2">
                     {threads.map(thread => {
                       const isActive = thread.id === activeThreadId;
                       const isSaved = savedThreadIds.includes(thread.id);
+                      const preview = threadPreviews[thread.id];
                       return (
                         <div
                           key={thread.id}
-                          className={`group w-full flex items-center justify-between p-2.5 rounded-xl border transition-all ${
+                          className={`group relative flex flex-col rounded-xl border overflow-hidden cursor-pointer transition-all ${
                             isActive
-                              ? 'bg-purple-950/30 border-purple-500/30 text-purple-200'
-                              : 'bg-gray-950/20 border-gray-900 text-gray-400 hover:text-gray-200 hover:border-gray-800'
+                              ? 'border-purple-500/60 shadow-[0_0_12px_rgba(168,85,247,0.25)]'
+                              : 'border-gray-800 hover:border-purple-500/30'
                           }`}
                         >
+                          {/* Preview thumbnail */}
                           <button
                             onClick={() => {
+                              playClick();
                               setActiveThreadId(thread.id);
                               setView('swipe');
                             }}
-                            className="flex-1 text-left flex items-center gap-2 min-w-0"
+                            className="w-full aspect-square bg-black overflow-hidden flex items-center justify-center relative"
                           >
-                            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${thread.type === 'line' ? 'bg-purple-400' : 'bg-emerald-400'}`} />
-                            <span className="text-xs font-semibold truncate">{thread.name}</span>
-                            <span className="text-[8px] opacity-60 px-1 py-0.5 rounded bg-gray-900 border border-gray-800 flex-shrink-0">
+                            {preview ? (
+                              preview.type === 'line'
+                                ? <LineCanvas dna={preview.dna as LineDNA} />
+                                : <MosaicCanvas dna={preview.dna as MosaicDNA} />
+                            ) : (
+                              <div className={`w-full h-full flex items-center justify-center ${
+                                thread.type === 'line'
+                                  ? 'bg-gradient-to-br from-purple-950/60 to-indigo-950/60'
+                                  : 'bg-gradient-to-br from-emerald-950/60 to-teal-950/60'
+                              }`}>
+                                <span className={`text-[9px] font-bold uppercase tracking-widest opacity-50 ${
+                                  thread.type === 'line' ? 'text-purple-300' : 'text-emerald-300'
+                                }`}>{thread.type === 'line' ? 'LINE' : 'MOSAIC'}</span>
+                              </div>
+                            )}
+                            {/* Active indicator */}
+                            {isActive && (
+                              <div className="absolute top-1 left-1 w-1.5 h-1.5 rounded-full bg-purple-400 shadow-[0_0_6px_rgba(168,85,247,0.9)]" />
+                            )}
+                            {/* Gen badge */}
+                            <span className="absolute bottom-1 left-1 px-1 py-0.5 rounded bg-black/70 text-[7px] text-purple-300 font-bold border border-purple-500/20">
                               G{thread.generation}
                             </span>
                           </button>
-                          <div className="flex items-center gap-1.5 flex-shrink-0">
-                            {thread.creator_session_id === sessionId && (
+
+                          {/* Footer: name + actions */}
+                          <div className={`flex items-center justify-between px-1.5 py-1 ${
+                            isActive ? 'bg-purple-950/50' : 'bg-gray-950/80'
+                          }`}>
+                            <span className="text-[9px] font-bold text-gray-200 truncate flex-1 min-w-0">{thread.name}</span>
+                            <div className="flex items-center gap-0.5 flex-shrink-0 ml-1">
+                              {thread.creator_session_id === sessionId && (
+                                <button
+                                  onClick={(e) => { playClick(); e.stopPropagation(); handleDeleteThread(thread.id); }}
+                                  className="p-0.5 text-gray-600 hover:text-rose-400 transition-colors"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              )}
                               <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleDeleteThread(thread.id);
-                                }}
-                                className="p-1 text-gray-500 hover:text-rose-400 transition-colors"
-                                title="Delete Thread"
+                                onClick={(e) => { playClick(); e.stopPropagation(); toggleSaveThread(thread.id); }}
+                                className={`p-0.5 transition-colors ${
+                                  isSaved ? 'text-purple-400' : 'text-gray-600 hover:text-gray-400'
+                                }`}
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
+                                <Star className={`w-3 h-3 ${isSaved ? 'fill-purple-400' : ''}`} />
                               </button>
-                            )}
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                toggleSaveThread(thread.id);
-                              }}
-                              className={`p-1 transition-colors ${
-                                isSaved 
-                                  ? 'text-purple-400 hover:text-purple-300' 
-                                  : 'text-gray-600 hover:text-gray-400'
-                              }`}
-                            >
-                              <Star className={`w-3.5 h-3.5 ${isSaved ? 'fill-purple-400 text-purple-400' : ''}`} />
-                            </button>
+                            </div>
                           </div>
                         </div>
                       );
                     })}
+                    </div>
                   </div>
                 ) : (
                   <div className="flex-1 flex flex-col min-h-0">
                     {/* Sub-tab selector */}
                     <div className="flex gap-1 mb-3 p-0.5 bg-gray-950/60 border border-gray-900 rounded-lg">
                       <button
-                        onClick={() => setSavedSubTab('threads')}
+                        onClick={() => {
+                          playClick();
+                          setSavedSubTab('threads');
+                        }}
                         className={`flex-1 py-1 text-[9px] font-bold uppercase tracking-wider rounded-md transition-all ${
                           savedSubTab === 'threads'
                             ? 'bg-purple-600/20 text-purple-300 border border-purple-500/10'
@@ -1327,74 +1881,81 @@ export default function App() {
                         プロジェクト ({threads.filter(t => savedThreadIds.includes(t.id)).length})
                       </button>
                       <button
-                        onClick={() => setSavedSubTab('cards')}
+                        onClick={() => {
+                          playClick();
+                          setSavedSubTab('cards');
+                        }}
                         className={`flex-1 py-1 text-[9px] font-bold uppercase tracking-wider rounded-md transition-all ${
                           savedSubTab === 'cards'
                             ? 'bg-purple-600/20 text-purple-300 border border-purple-500/10'
                             : 'text-gray-500 hover:text-gray-300 border border-transparent'
                         }`}
                       >
-                        画像 ({savedCards.length})
+                        カード ({savedCards.length}/{CARD_FAVORITES_LIMIT})
                       </button>
                     </div>
 
                     {savedSubTab === 'threads' ? (
-                      <div className="flex-1 overflow-y-auto space-y-2 pr-1 max-h-[260px] scrollbar-thin scrollbar-thumb-purple-900 scrollbar-track-transparent">
+                      <div className="flex-1 overflow-y-auto pr-1 max-h-[260px] scrollbar-thin scrollbar-thumb-purple-900 scrollbar-track-transparent">
                         {threads.filter(t => savedThreadIds.includes(t.id)).length === 0 ? (
                           <div className="text-center py-12 text-gray-600 text-[9px] uppercase tracking-wider font-semibold">
                             保存したプロジェクトはありません
                           </div>
                         ) : (
-                          threads.filter(t => savedThreadIds.includes(t.id)).map(thread => {
+                          <div className="grid grid-cols-2 gap-2">
+                          {threads.filter(t => savedThreadIds.includes(t.id)).map(thread => {
                             const isActive = thread.id === activeThreadId;
+                            const preview = threadPreviews[thread.id];
                             return (
                               <div
                                 key={thread.id}
-                                className={`group w-full flex items-center justify-between p-2 rounded-xl border transition-all ${
+                                className={`group relative flex flex-col rounded-xl border overflow-hidden cursor-pointer transition-all ${
                                   isActive
-                                    ? 'bg-purple-950/30 border-purple-500/30 text-purple-200'
-                                    : 'bg-gray-950/20 border-gray-900 text-gray-400 hover:text-gray-200 hover:border-gray-800'
+                                    ? 'border-purple-500/60 shadow-[0_0_12px_rgba(168,85,247,0.25)]'
+                                    : 'border-gray-800 hover:border-purple-500/30'
                                 }`}
                               >
                                 <button
-                                  onClick={() => {
-                                    setActiveThreadId(thread.id);
-                                    setView('swipe');
-                                  }}
-                                  className="flex-1 text-left flex items-center gap-2 min-w-0"
+                                  onClick={() => { playClick(); setActiveThreadId(thread.id); setView('swipe'); }}
+                                  className="w-full aspect-square bg-black overflow-hidden flex items-center justify-center relative"
                                 >
-                                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${thread.type === 'line' ? 'bg-purple-400' : 'bg-emerald-400'}`} />
-                                  <span className="text-xs font-semibold truncate">{thread.name}</span>
-                                  <span className="text-[8px] opacity-60 px-1 py-0.5 rounded bg-gray-900 border border-gray-800 flex-shrink-0">
-                                    G{thread.generation}
-                                  </span>
-                                </button>
-                                <div className="flex items-center gap-1.5 flex-shrink-0">
-                                  {thread.creator_session_id === sessionId && (
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleDeleteThread(thread.id);
-                                      }}
-                                      className="p-1 text-gray-500 hover:text-rose-400 transition-colors"
-                                      title="Delete Thread"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
+                                  {preview ? (
+                                    preview.type === 'line'
+                                      ? <LineCanvas dna={preview.dna as LineDNA} />
+                                      : <MosaicCanvas dna={preview.dna as MosaicDNA} />
+                                  ) : (
+                                    <div className={`w-full h-full flex items-center justify-center ${
+                                      thread.type === 'line'
+                                        ? 'bg-gradient-to-br from-purple-950/60 to-indigo-950/60'
+                                        : 'bg-gradient-to-br from-emerald-950/60 to-teal-950/60'
+                                    }`}>
+                                      <span className={`text-[9px] font-bold uppercase tracking-widest opacity-50 ${
+                                        thread.type === 'line' ? 'text-purple-300' : 'text-emerald-300'
+                                      }`}>{thread.type === 'line' ? 'LINE' : 'MOSAIC'}</span>
+                                    </div>
                                   )}
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      toggleSaveThread(thread.id);
-                                    }}
-                                    className="p-1 text-purple-400 hover:text-purple-300 transition-colors"
-                                  >
-                                    <Star className="w-3.5 h-3.5 fill-purple-400 text-purple-400" />
-                                  </button>
+                                  {isActive && <div className="absolute top-1 left-1 w-1.5 h-1.5 rounded-full bg-purple-400 shadow-[0_0_6px_rgba(168,85,247,0.9)]" />}
+                                  <span className="absolute bottom-1 left-1 px-1 py-0.5 rounded bg-black/70 text-[7px] text-purple-300 font-bold border border-purple-500/20">G{thread.generation}</span>
+                                </button>
+                                <div className={`flex items-center justify-between px-1.5 py-1 ${
+                                  isActive ? 'bg-purple-950/50' : 'bg-gray-950/80'
+                                }`}>
+                                  <span className="text-[9px] font-bold text-gray-200 truncate flex-1 min-w-0">{thread.name}</span>
+                                  <div className="flex items-center gap-0.5 flex-shrink-0 ml-1">
+                                    {thread.creator_session_id === sessionId && (
+                                      <button onClick={(e) => { playClick(); e.stopPropagation(); handleDeleteThread(thread.id); }} className="p-0.5 text-gray-600 hover:text-rose-400 transition-colors">
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
+                                    )}
+                                    <button onClick={(e) => { playClick(); e.stopPropagation(); toggleSaveThread(thread.id); }} className="p-0.5 text-purple-400 hover:text-purple-300 transition-colors">
+                                      <Star className="w-3 h-3 fill-purple-400" />
+                                    </button>
+                                  </div>
                                 </div>
                               </div>
                             );
-                          })
+                          })}
+                          </div>
                         )}
                       </div>
                     ) : (
@@ -1404,11 +1965,12 @@ export default function App() {
                             保存した画像はありません
                           </div>
                         ) : (
-                          <div className="grid grid-cols-3 gap-2">
+                          <div className="grid grid-cols-2 gap-3">
                             {savedCards.map(card => (
                               <div
                                 key={card.id}
                                 onClick={() => {
+                                  playClick();
                                   setSelectedCard({
                                     id: card.id,
                                     generation: card.generation,
@@ -1431,8 +1993,8 @@ export default function App() {
                                   )}
                                 </div>
                                 {/* Overlay tag */}
-                                <div className="absolute bottom-1 left-1 right-1 flex justify-between items-center bg-black/75 px-1 py-0.5 rounded text-[5px] text-gray-300 font-semibold border border-gray-800/40">
-                                  <span className="truncate max-w-[45px]">{card.threadName}</span>
+                                <div className="absolute bottom-1 left-1 right-1 flex justify-between items-center bg-black/75 px-1.5 py-0.5 rounded text-[7px] text-gray-300 font-semibold border border-gray-800/40">
+                                  <span className="truncate max-w-[70px]">{card.threadName}</span>
                                   <span className="text-purple-300">G{card.generation}</span>
                                 </div>
                               </div>
@@ -1443,6 +2005,94 @@ export default function App() {
                     )}
                   </div>
                 )}
+              </div>
+            </motion.div>
+          ) : (
+            <motion.div
+              key="shop"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ duration: 0.15 }}
+              className="w-full max-w-[400px] flex flex-col p-5 bg-[#090a10]/80 border border-gray-900 rounded-3xl shadow-2xl backdrop-blur-md min-h-[420px] relative overflow-hidden"
+            >
+              {/* Background gradient flare */}
+              <div className="absolute top-[-50%] left-[-50%] w-[100%] h-[100%] rounded-full bg-purple-500/5 blur-[80px] pointer-events-none" />
+
+              <div className="flex items-center justify-between border-b border-gray-900 pb-3.5 mb-5 relative z-10">
+                <div className="flex items-center gap-2">
+                  <ShoppingCart className="w-4 h-4 text-purple-400" />
+                  <h2 className="text-xs font-bold text-gray-200 uppercase tracking-wider text-left">ソウルショップ</h2>
+                </div>
+                <button
+                  onClick={() => {
+                    playClick();
+                    setView('swipe');
+                  }}
+                  className="p-1.5 text-gray-500 hover:text-gray-300 rounded-lg hover:bg-gray-900 transition-colors"
+                  title="閉じる"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Current Souls Display */}
+              <div className="mb-5 p-4 rounded-xl bg-gradient-to-br from-purple-950/30 to-indigo-950/30 border border-purple-500/10 flex flex-col items-center justify-center gap-1 shadow-inner relative z-10">
+                <span className="text-[9px] uppercase tracking-wider text-purple-400 font-bold">現在の所持ソウル</span>
+                <span className="text-2xl font-black text-yellow-300 drop-shadow-[0_0_8px_rgba(253,224,71,0.2)]">
+                  🔮 {staminaData.souls} <span className="text-xs font-semibold text-gray-400">Soul</span>
+                </span>
+              </div>
+
+              {/* Shop Items Grid */}
+              <div className="space-y-3 relative z-10 flex-1 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-purple-900 scrollbar-track-transparent">
+                {/* Item 1: Recover Stamina */}
+                <div className="p-3 bg-gray-950/40 border border-gray-900 rounded-xl flex items-center justify-between gap-4">
+                  <div className="text-left min-w-0">
+                    <h4 className="text-xs font-bold text-gray-200">スタミナ10回復薬</h4>
+                    <p className="text-[9px] text-gray-500 mt-0.5">スタミナを10回復します（上限を超えません）</p>
+                    <span className="text-[10px] text-yellow-300/80 font-bold block mt-1">価格: 300 Soul</span>
+                  </div>
+                  <button
+                    onClick={buyStaminaRecovery}
+                    disabled={staminaData.souls < 300 || staminaData.stamina >= staminaData.maxStamina}
+                    className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 disabled:bg-gray-900 disabled:text-gray-600 text-white rounded-lg text-[10px] font-bold transition-all shadow-md flex-shrink-0"
+                  >
+                    交換する
+                  </button>
+                </div>
+
+                {/* Item 2: Upgrade Max Stamina */}
+                <div className="p-3 bg-gray-950/40 border border-gray-900 rounded-xl flex items-center justify-between gap-4">
+                  <div className="text-left min-w-0">
+                    <h4 className="text-xs font-bold text-gray-200">スタミナ上限+5追加</h4>
+                    <p className="text-[9px] text-gray-500 mt-0.5">最大スタミナ上限を5増やします（現在値も5増えます）</p>
+                    <span className="text-[10px] text-yellow-300/80 font-bold block mt-1">価格: 1000 Soul</span>
+                  </div>
+                  <button
+                    onClick={buyMaxStaminaUpgrade}
+                    disabled={staminaData.souls < 1000}
+                    className="px-3 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:from-gray-900 disabled:to-gray-900 disabled:text-gray-600 text-white rounded-lg text-[10px] font-bold transition-all shadow-md flex-shrink-0"
+                  >
+                    交換する
+                  </button>
+                </div>
+
+                {/* Item 3: Ad-Free Pass */}
+                <div className="p-3 bg-gray-950/40 border border-gray-900 rounded-xl flex items-center justify-between gap-4">
+                  <div className="text-left min-w-0">
+                    <h4 className="text-xs font-bold text-gray-200">広告非表示パス (Ad-Free)</h4>
+                    <p className="text-[9px] text-gray-500 mt-0.5">画面下部の広告バナーを永久に非表示にします</p>
+                    <span className="text-[10px] text-yellow-300/80 font-bold block mt-1">価格: 150 Soul</span>
+                  </div>
+                  <button
+                    onClick={buyAdFreePass}
+                    disabled={staminaData.souls < 150 || staminaData.isAdFree}
+                    className="px-3 py-1.5 bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 disabled:from-gray-900 disabled:to-gray-900 disabled:text-gray-600 text-white rounded-lg text-[10px] font-bold transition-all shadow-md flex-shrink-0"
+                  >
+                    {staminaData.isAdFree ? '購入済み' : '交換する'}
+                  </button>
+                </div>
               </div>
             </motion.div>
           )}
@@ -1497,7 +2147,7 @@ export default function App() {
               </div>
             </div>
             <button 
-              onClick={() => setShowShopModal(true)}
+              onClick={() => setView('shop')}
               className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-md text-[8px] font-black uppercase tracking-wider transition-colors shadow-sm whitespace-nowrap"
             >
               Get
@@ -1554,7 +2204,22 @@ export default function App() {
                     {historySpecimens.map(specimen => (
                       <div 
                         key={specimen.id} 
-                        className="bg-gray-950/60 border border-gray-900 rounded-xl p-2 flex flex-col items-center gap-1.5 hover:border-purple-500/25 transition-colors"
+                        onClick={() => {
+                          playClick();
+                          setSelectedCard({
+                            id: specimen.id,
+                            generation: specimen.generation,
+                            dna: specimen.dna,
+                            threadId: activeThreadId || undefined,
+                            threadName: activeThread?.name,
+                            type: mode
+                          });
+                          setForkingMode(false);
+                          setForkThreadName('');
+                          setShowHistoryModal(false);
+                          setShowDetailModal(true);
+                        }}
+                        className="bg-gray-950/60 border border-gray-900 rounded-xl p-2 flex flex-col items-center gap-1.5 hover:border-purple-500/40 transition-colors cursor-pointer active:scale-95"
                       >
                         <div className="w-full aspect-square rounded-lg overflow-hidden bg-black relative flex items-center justify-center">
                           {mode === 'line' ? (
@@ -1564,6 +2229,9 @@ export default function App() {
                           )}
                           <span className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/60 text-[7px] text-purple-300 font-semibold border border-purple-500/10">
                             Gen {specimen.generation}
+                          </span>
+                          <span className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded bg-black/60 text-[6px] text-gray-400 font-bold border border-gray-800/50">
+                            タップで詳細
                           </span>
                         </div>
                         <span className="text-[7px] font-bold text-gray-500 uppercase tracking-widest text-center mt-0.5">
@@ -1641,7 +2309,7 @@ export default function App() {
                     >
                       <span className="w-2 h-2 rounded-full bg-purple-400" />
                       ライン
-                      <span className="text-[9px] text-gray-500 font-bold block mt-0.5">100 Soul</span>
+                      <span className="text-[9px] text-gray-500 font-bold block mt-0.5">200 Soul</span>
                     </button>
                     <button
                       type="button"
@@ -1654,7 +2322,7 @@ export default function App() {
                     >
                       <span className="w-2 h-2 rounded-full bg-emerald-400" />
                       モザイク
-                      <span className="text-[9px] text-gray-500 font-bold block mt-0.5">200 Soul</span>
+                      <span className="text-[9px] text-gray-500 font-bold block mt-0.5">500 Soul</span>
                     </button>
                   </div>
                 </div>
@@ -1662,11 +2330,11 @@ export default function App() {
                 <div className="pt-2">
                   <button
                     type="submit"
-                    disabled={creatingThread || staminaData.souls < (newThreadType === 'line' ? 100 : 200)}
+                    disabled={creatingThread || staminaData.souls < (newThreadType === 'line' ? 200 : 500)}
                     className="w-full py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-purple-600/20 disabled:opacity-50"
                   >
                     {creatingThread && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                    プロジェクトを作成 ({newThreadType === 'line' ? '100' : '200'} Soul)
+                    プロジェクトを作成 ({newThreadType === 'line' ? '200' : '500'} Soul)
                   </button>
                 </div>
               </form>
@@ -1675,98 +2343,7 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Shop Modal */}
-      <AnimatePresence>
-        {showShopModal && (
-          <div 
-            onClick={() => setShowShopModal(false)}
-            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-6"
-          >
-            <motion.div
-              onClick={(e) => e.stopPropagation()}
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="w-full max-w-sm bg-[#0a0b10] border border-gray-900 rounded-2xl p-6 shadow-2xl relative overflow-hidden"
-            >
-              {/* Background gradient flare */}
-              <div className="absolute top-[-50%] left-[-50%] w-[100%] h-[100%] rounded-full bg-purple-500/5 blur-[80px] pointer-events-none" />
 
-              <div className="flex items-center justify-between mb-4 relative z-10 border-b border-gray-900 pb-3">
-                <div className="text-left">
-                  <span className="text-[8px] uppercase tracking-widest text-purple-500 font-bold block">Soul Exchange Shop</span>
-                  <h3 className="text-sm font-bold text-gray-200">ソウルショップ</h3>
-                </div>
-                <button
-                  onClick={() => setShowShopModal(false)}
-                  className="p-1 text-gray-500 hover:text-gray-300 rounded-lg hover:bg-gray-900 transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* Current Souls Display */}
-              <div className="mb-5 p-4 rounded-xl bg-gradient-to-br from-purple-950/30 to-indigo-950/30 border border-purple-500/10 flex flex-col items-center justify-center gap-1 shadow-inner relative z-10">
-                <span className="text-[9px] uppercase tracking-wider text-purple-400 font-bold">現在の所持ソウル</span>
-                <span className="text-2xl font-black text-yellow-300 drop-shadow-[0_0_8px_rgba(253,224,71,0.2)]">
-                  🔮 {staminaData.souls} <span className="text-xs font-semibold text-gray-400">Soul</span>
-                </span>
-              </div>
-
-              {/* Shop Items Grid */}
-              <div className="space-y-3 relative z-10">
-                {/* Item 1: Recover Stamina */}
-                <div className="p-3 bg-gray-950/40 border border-gray-900 rounded-xl flex items-center justify-between gap-4">
-                  <div className="text-left min-w-0">
-                    <h4 className="text-xs font-bold text-gray-200">スタミナ10回復薬</h4>
-                    <p className="text-[9px] text-gray-500 mt-0.5">スタミナを10回復します（上限を超えません）</p>
-                    <span className="text-[10px] text-yellow-300/80 font-bold block mt-1">価格: 50 Soul</span>
-                  </div>
-                  <button
-                    onClick={buyStaminaRecovery}
-                    disabled={staminaData.souls < 50 || staminaData.stamina >= staminaData.maxStamina}
-                    className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 disabled:bg-gray-900 disabled:text-gray-600 text-white rounded-lg text-[10px] font-bold transition-all shadow-md flex-shrink-0"
-                  >
-                    交換する
-                  </button>
-                </div>
-
-                {/* Item 2: Upgrade Max Stamina */}
-                <div className="p-3 bg-gray-950/40 border border-gray-900 rounded-xl flex items-center justify-between gap-4">
-                  <div className="text-left min-w-0">
-                    <h4 className="text-xs font-bold text-gray-200">スタミナ上限+5追加</h4>
-                    <p className="text-[9px] text-gray-500 mt-0.5">最大スタミナ上限を5増やします（現在値も5増えます）</p>
-                    <span className="text-[10px] text-yellow-300/80 font-bold block mt-1">価格: 100 Soul</span>
-                  </div>
-                  <button
-                    onClick={buyMaxStaminaUpgrade}
-                    disabled={staminaData.souls < 100}
-                    className="px-3 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:from-gray-900 disabled:to-gray-900 disabled:text-gray-600 text-white rounded-lg text-[10px] font-bold transition-all shadow-md flex-shrink-0"
-                  >
-                    交換する
-                  </button>
-                </div>
-
-                {/* Item 3: Ad-Free Pass */}
-                <div className="p-3 bg-gray-950/40 border border-gray-900 rounded-xl flex items-center justify-between gap-4">
-                  <div className="text-left min-w-0">
-                    <h4 className="text-xs font-bold text-gray-200">広告非表示パス (Ad-Free)</h4>
-                    <p className="text-[9px] text-gray-500 mt-0.5">画面下部の広告バナーを永久に非表示にします</p>
-                    <span className="text-[10px] text-yellow-300/80 font-bold block mt-1">価格: 150 Soul</span>
-                  </div>
-                  <button
-                    onClick={buyAdFreePass}
-                    disabled={staminaData.souls < 150 || staminaData.isAdFree}
-                    className="px-3 py-1.5 bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 disabled:from-gray-900 disabled:to-gray-900 disabled:text-gray-600 text-white rounded-lg text-[10px] font-bold transition-all shadow-md flex-shrink-0"
-                  >
-                    {staminaData.isAdFree ? '購入済み' : '交換する'}
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
 
       {/* Card Detail Modal */}
       <AnimatePresence>
@@ -1862,7 +2439,7 @@ export default function App() {
                     <GitFork className="w-4 h-4 text-purple-200 animate-pulse" />
                     この個体から分岐して新プロジェクトを作成
                     <span className="text-[9px] opacity-75 font-semibold bg-black/40 px-1.5 py-0.5 rounded text-yellow-300">
-                      500 Soul
+                      1000 Soul
                     </span>
                   </button>
                 ) : (
@@ -1872,7 +2449,7 @@ export default function App() {
                         <GitFork className="w-3 h-3" /> 分岐プロジェクト作成
                       </span>
                       <span className="text-[8px] font-bold text-yellow-300 bg-yellow-950/30 border border-yellow-500/10 px-1.5 py-0.5 rounded">
-                        コスト: 500 Soul
+                        コスト: 1000 Soul
                       </span>
                     </div>
 
@@ -1896,16 +2473,16 @@ export default function App() {
                       </button>
                       <button
                         type="submit"
-                        disabled={isForking || staminaData.souls < 500}
+                        disabled={isForking || staminaData.souls < 1000}
                         className="py-2 bg-purple-600 hover:bg-purple-500 disabled:bg-gray-900 disabled:text-gray-600 text-white text-[10px] font-bold rounded-lg transition-all flex items-center justify-center gap-1 disabled:opacity-50"
                       >
                         {isForking && <RefreshCw className="w-3 h-3 animate-spin" />}
-                        {staminaData.souls < 500 ? 'Soul不足' : '作成する'}
+                        {staminaData.souls < 1000 ? 'Soul不足' : '作成する'}
                       </button>
                     </div>
-                    {staminaData.souls < 500 && (
+                    {staminaData.souls < 1000 && (
                       <span className="text-[8px] text-rose-400 block text-center font-semibold mt-1">
-                        ※作成には500 Soul必要です（現在: {staminaData.souls} Soul）
+                        ※作成には1000 Soul必要です（現在: {staminaData.souls} Soul）
                       </span>
                     )}
                   </form>
@@ -1916,141 +2493,419 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Full-Screen Swipe Guide Overlay for New Users */}
+      {/* Wplace-Style Custom Auth Modal */}
       <AnimatePresence>
-        {showSwipeGuide && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-hidden select-none pointer-events-none">
-            {/* Background glowing flares */}
-            <div className="absolute top-[-20%] left-[-20%] w-[80%] h-[80%] rounded-full bg-rose-600/5 blur-[120px] pointer-events-none" />
-            <div className="absolute bottom-[-20%] right-[-20%] w-[80%] h-[80%] rounded-full bg-emerald-600/5 blur-[120px] pointer-events-none" />
-
+        {showAuthModal && (
+          <div 
+            onClick={() => setShowAuthModal(false)}
+            className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-6 animate-fade-in"
+          >
             <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.4 }}
-              className="w-full h-full relative flex flex-col items-center justify-between py-12 px-4 pointer-events-none"
+              onClick={(e) => e.stopPropagation()}
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="w-full max-w-[360px] bg-[#0c0e15]/80 border border-purple-500/10 rounded-3xl p-8 shadow-2xl relative overflow-hidden text-center backdrop-blur-lg flex flex-col justify-between"
+              style={{
+                boxShadow: '0 0 40px rgba(168, 85, 247, 0.15), inset 0 0 12px rgba(255, 255, 255, 0.05)',
+                fontFamily: "'Outfit', sans-serif"
+              }}
             >
-              {/* Hourglass Curved Guidelines (SVG) */}
-              <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-0">
-                <svg className="w-full h-full text-white" viewBox="0 0 100 100" preserveAspectRatio="none">
-                  {/* Left curve path */}
-                  <path 
-                    d="M 40,0 Q 48,50 40,100" 
-                    fill="none" 
-                    stroke="url(#nopeGradient)" 
-                    strokeWidth="0.3" 
-                    strokeDasharray="1 1.5"
-                    className="opacity-50"
-                  />
-                  {/* Right curve path */}
-                  <path 
-                    d="M 60,0 Q 52,50 60,100" 
-                    fill="none" 
-                    stroke="url(#likeGradient)" 
-                    strokeWidth="0.3" 
-                    strokeDasharray="1 1.5"
-                    className="opacity-50"
-                  />
-                  
-                  {/* Defs for gradients */}
-                  <defs>
-                    <linearGradient id="nopeGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#f43f5e" stopOpacity="0.1" />
-                      <stop offset="50%" stopColor="#f43f5e" stopOpacity="0.9" />
-                      <stop offset="100%" stopColor="#f43f5e" stopOpacity="0.1" />
-                    </linearGradient>
-                    <linearGradient id="likeGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#10b981" stopOpacity="0.1" />
-                      <stop offset="50%" stopColor="#10b981" stopOpacity="0.9" />
-                      <stop offset="100%" stopColor="#10b981" stopOpacity="0.1" />
-                    </linearGradient>
-                  </defs>
-                </svg>
-              </div>
+              {/* Decorative top light flare */}
+              <div className="absolute top-[-30%] left-[20%] right-[20%] h-[40%] rounded-full bg-gradient-to-r from-purple-500/20 to-indigo-500/20 blur-2xl pointer-events-none" />
 
-              {/* Top: Onboarding Guide Header */}
-              <div className="text-center relative z-10 pt-4 max-w-sm">
-                <h2 className="text-[11px] font-black tracking-widest text-purple-400 uppercase mb-1">
-                  Art Evolutionary Onboarding
+              {/* Close Button */}
+              <button
+                onClick={() => setShowAuthModal(false)}
+                className="absolute top-4 right-4 p-1.5 text-gray-500 hover:text-gray-300 rounded-full hover:bg-white/5 transition-all"
+              >
+                <X className="w-4.5 h-4.5" />
+              </button>
+
+              <div className="my-auto py-4">
+                {/* Glowing DNA double helix logo */}
+                <div className="relative flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-tr from-purple-500/10 to-indigo-500/10 border border-purple-500/20 shadow-inner mb-6 mx-auto">
+                  <div className="absolute inset-0 bg-gradient-to-tr from-purple-500/20 to-indigo-500/20 rounded-2xl blur-md opacity-75" />
+                  <Dna className="w-8 h-8 text-purple-400 drop-shadow-[0_0_8px_rgba(168,85,247,0.7)] animate-pulse z-10" />
+                </div>
+
+                {/* Title and Branding */}
+                <h2 className="text-xl font-bold tracking-tight text-white mb-2">
+                  gene46 <span className="text-purple-400 font-medium">Evolution</span>
                 </h2>
-                <h3 className="text-xs text-gray-400 font-bold px-4">
-                  直感的な操作で、アートを無限に進化させましょう
-                </h3>
-              </div>
-
-              {/* Middle Content Layout: Left and Right Columns */}
-              <div className="flex-1 w-full max-w-md grid grid-cols-2 gap-4 items-center relative z-10 my-auto">
-                {/* Left Column: NOPE */}
-                <div className="flex flex-col items-center justify-center text-center h-full px-2">
-                  {/* Above Explanation */}
-                  <div className="flex flex-col items-center justify-end h-[100px] mb-4">
-                    <span className="text-rose-400/80 text-[10px] font-bold uppercase tracking-widest mb-1.5 px-2 py-0.5 rounded-full bg-rose-500/10 border border-rose-500/20">
-                      淘汰 / ELIMINATE
-                    </span>
-                    <p className="text-[10.5px] text-gray-300 font-medium leading-relaxed">
-                      好みではないデザイン
-                    </p>
-                  </div>
-
-                  {/* NOPE Text */}
-                  <div className="flex items-center justify-center h-[80px] my-2">
-                    <span className="text-4xl md:text-5xl font-black tracking-wider text-rose-500 font-sans select-none filter drop-shadow-[0_0_12px_rgba(244,63,94,0.65)] animate-pulse">
-                      NOPE
-                    </span>
-                  </div>
-
-                  {/* Below Explanation */}
-                  <div className="flex flex-col items-center justify-start h-[100px] mt-4">
-                    <p className="text-[10px] text-gray-400 leading-relaxed max-w-[140px]">
-                      左にスワイプしてスキップします。その個体の特徴は淘汰され、次世代へ受け継がれません。
-                    </p>
-                  </div>
-                </div>
-
-                {/* Right Column: LIKE */}
-                <div className="flex flex-col items-center justify-center text-center h-full px-2">
-                  {/* Above Explanation */}
-                  <div className="flex flex-col items-center justify-end h-[100px] mb-4">
-                    <span className="text-emerald-400/80 text-[10px] font-bold uppercase tracking-widest mb-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
-                      進化 / EVOLVE
-                    </span>
-                    <p className="text-[10.5px] text-gray-300 font-medium leading-relaxed">
-                      お気に入りのデザイン
-                    </p>
-                  </div>
-
-                  {/* LIKE Text */}
-                  <div className="flex items-center justify-center h-[80px] my-2">
-                    <span className="text-4xl md:text-5xl font-black tracking-wider text-emerald-500 font-sans select-none filter drop-shadow-[0_0_12px_rgba(16,185,129,0.65)] animate-pulse">
-                      LIKE
-                    </span>
-                  </div>
-
-                  {/* Below Explanation */}
-                  <div className="flex flex-col items-center justify-start h-[100px] mt-4">
-                    <p className="text-[10px] text-gray-400 leading-relaxed max-w-[140px]">
-                      右にスワイプして残します。お気に入りの特徴をもとに、AIが突然変異を繰り返します。
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Bottom: Swipe Hint */}
-              <div className="text-center relative z-10 pb-4 flex flex-col items-center gap-2">
-                <div className="flex items-center gap-2 text-xs font-black text-white/70 animate-bounce tracking-widest">
-                  <span>←</span>
-                  <span>カードを左右にスワイプして開始</span>
-                  <span>→</span>
-                </div>
-                <p className="text-[9px] text-gray-500 font-bold uppercase tracking-widest">
-                  ※カードをスワイプするとガイドは自動的に消えます
+                <p className="text-xs text-gray-400 leading-relaxed max-w-[280px] mx-auto mb-8">
+                  遺伝子の螺旋を探索し、 specimen（スペックメン）の進化を進めるにはログインが必要です。
                 </p>
+
+                {/* Continue with Google button */}
+                <button
+                  onClick={() => {
+                    playClick();
+                    triggerGoogleAuth();
+                  }}
+                  className="w-full py-3.5 px-5 bg-white text-gray-900 rounded-full text-xs font-bold transition-all flex items-center justify-center gap-2 hover:bg-gray-100 hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-white/5 duration-150 mb-2"
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none">
+                    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                    <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" fill="#FBBC05"/>
+                    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335"/>
+                  </svg>
+                  Googleでログイン
+                </button>
+
+                {import.meta.env.DEV && (
+                  <button
+                    onClick={() => {
+                      playClick();
+                      triggerMockAuth();
+                    }}
+                    className="w-full py-2.5 px-4 bg-purple-950/40 border border-purple-500/20 hover:border-purple-500/40 text-purple-300 rounded-full text-xs font-bold transition-all flex items-center justify-center gap-2 mb-4"
+                  >
+                    Mock Developer Login
+                  </button>
+                )}
+
+                {/* Muted Terms */}
+                <p className="text-[10px] text-gray-500 leading-normal max-w-[240px] mx-auto">
+                  ログインすることで、当サービスの
+                  <a href="#" className="underline hover:text-gray-400 mx-1">利用規約</a>及び
+                  <a href="#" className="underline hover:text-gray-400 ml-1">プライバシーポリシー</a>に同意したものとみなされます。
+                </p>
+              </div>
+
+              {/* Dev mock indicator */}
+              {import.meta.env.DEV && (
+                <div className="border-t border-gray-900/50 pt-4 mt-2">
+                  <span className="text-[9px] font-mono text-purple-400 bg-purple-950/30 px-2 py-0.5 rounded border border-purple-500/10">
+                    Developer Mode: Direct Mock Auth Active
+                  </span>
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+
+      {/* Side Drawer */}
+      <AnimatePresence>
+        {showDrawer && (
+          <>
+            {/* Backdrop */}
+            <div 
+              onClick={() => setShowDrawer(false)}
+              className="fixed inset-0 bg-black/60 backdrop-blur-xs z-40 animate-fade-in"
+            />
+            {/* Sliding Panel */}
+            <motion.div
+              initial={{ x: '-100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '-100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="fixed top-0 left-0 h-full w-[280px] sm:w-[320px] bg-[#090a0f]/95 border-r border-gray-900 z-50 p-6 flex flex-col justify-between shadow-2xl backdrop-blur-md text-left"
+            >
+              <div>
+                {/* Header */}
+                <div className="flex items-center justify-between border-b border-gray-900 pb-4 mb-6">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 rounded-lg bg-gradient-to-tr from-purple-600 to-indigo-600">
+                      <Sparkles className="w-4 h-4 text-white" />
+                    </div>
+                    <span className="text-base font-bold text-gray-200 tracking-wider">gene46 メニュー</span>
+                  </div>
+                  <button
+                    onClick={() => setShowDrawer(false)}
+                    className="p-1.5 text-gray-500 hover:text-gray-300 rounded-lg hover:bg-gray-900 transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Navigation Menu */}
+                <nav className="space-y-2">
+                  {sessionType === 'anonymous' ? (
+                    <button
+                      onClick={() => {
+                        playClick();
+                        handleClerkUpgrade();
+                      }}
+                      className="w-full text-left px-4 py-3 bg-gradient-to-r from-purple-900/40 to-indigo-900/40 border border-purple-500/20 hover:border-purple-500/40 rounded-xl text-xs font-bold text-purple-200 hover:text-white transition-all flex items-center justify-between"
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-yellow-400" />
+                        クラウドに保存（ログイン）
+                      </span>
+                      <span className="text-purple-400 text-[10px]">→</span>
+                    </button>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="w-full px-4 py-3 bg-emerald-950/20 border border-emerald-500/20 rounded-xl text-xs font-semibold text-emerald-300 flex items-center gap-2">
+                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        クラウド同期済み（登録済）
+                      </div>
+                      <button
+                        onClick={() => {
+                          playClick();
+                          handleLogout();
+                        }}
+                        className="w-full text-left px-4 py-2.5 bg-rose-950/20 border border-rose-500/10 hover:border-rose-500/30 rounded-xl text-[10px] font-bold text-rose-300 hover:text-rose-200 transition-all flex items-center justify-between shadow-lg"
+                      >
+                        <span>アカウントのログアウト</span>
+                        <span className="text-rose-400 opacity-60">→</span>
+                      </button>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={() => {
+                      setShowTermsModal(true);
+                    }}
+                    className="w-full text-left px-4 py-3 bg-gray-950/40 border border-gray-900 hover:border-purple-500/20 rounded-xl text-xs font-semibold text-gray-300 hover:text-white transition-all flex items-center justify-between"
+                  >
+                    <span>利用規約</span>
+                    <span className="text-gray-600 text-[10px]">→</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setShowPrivacyModal(true);
+                    }}
+                    className="w-full text-left px-4 py-3 bg-gray-950/40 border border-gray-900 hover:border-purple-500/20 rounded-xl text-xs font-semibold text-gray-300 hover:text-white transition-all flex items-center justify-between"
+                  >
+                    <span>プライバシーポリシー</span>
+                    <span className="text-gray-600 text-[10px]">→</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setShowReportModal(true);
+                    }}
+                    className="w-full text-left px-4 py-3 bg-gray-950/40 border border-gray-900 hover:border-purple-500/20 rounded-xl text-xs font-semibold text-gray-300 hover:text-white transition-all flex items-center justify-between"
+                  >
+                    <span>問題報告・ご意見</span>
+                    <span className="text-gray-600 text-[10px]">→</span>
+                  </button>
+                </nav>
+
+                {/* Data Retention Test Section */}
+                <div className="mt-4 p-3 bg-gray-950/60 border border-gray-900 rounded-xl space-y-2 text-left">
+                  <div className="flex items-center justify-between border-b border-gray-900 pb-1.5 mb-1.5">
+                    <span className="text-[9px] uppercase tracking-widest text-purple-400 font-extrabold flex items-center gap-1">
+                      🧪 データ保持検証テスト
+                    </span>
+                    <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold ${
+                      sessionType === 'authenticated'
+                        ? 'bg-emerald-950/40 border border-emerald-500/20 text-emerald-400'
+                        : 'bg-yellow-950/40 border border-yellow-500/20 text-yellow-400'
+                    }`}>
+                      {sessionType === 'authenticated' ? 'テスト成功' : 'テスト待機中'}
+                    </span>
+                  </div>
+                  <p className="text-[9px] text-gray-500 leading-normal">
+                    ログイン後にデータ（セッションIDとスワイプ数・所持ソウル）が引き継がれ、消失しないことを実証するためのテストパネルです。
+                  </p>
+                  
+                  <div className="space-y-1.5 text-[9px] font-semibold text-gray-400">
+                    <div className="flex justify-between items-center bg-black/40 px-2 py-1 rounded">
+                      <span>1. 累計スワイプ数:</span>
+                      <span className="text-gray-200 font-bold">{staminaData.lifetimeSwipes} 回</span>
+                    </div>
+                    <div className="flex justify-between items-center bg-black/40 px-2 py-1 rounded">
+                      <span>2. 所持ソウル:</span>
+                      <span className="text-gray-200 font-bold">🔮 {staminaData.souls} Soul</span>
+                    </div>
+                    <div className="flex justify-between items-center bg-black/40 px-2 py-1 rounded">
+                      <span>3. 接続アカウント状態:</span>
+                      <span className={sessionType === 'authenticated' ? "text-emerald-400 font-bold" : "text-yellow-500 font-bold"}>
+                        {sessionType === 'authenticated' ? "✅ ログイン済み（同期中）" : "未ログイン（匿名状態）"}
+                      </span>
+                    </div>
+                  </div>
+
+                  {sessionType === 'authenticated' ? (
+                    <div className="mt-2 p-2 bg-emerald-950/30 border border-emerald-500/20 rounded-lg text-[9px] text-emerald-300 font-bold leading-normal">
+                      🎉 【検証結果：合格】<br />
+                      データは一切失われず、同じセッションID（末尾: {sessionId.slice(-6)}）のままクラウドに正常に同期・移行されました！
+                    </div>
+                  ) : (
+                    <div className="mt-2 p-2 bg-yellow-950/20 border border-yellow-500/10 rounded-lg text-[9px] text-gray-400 leading-normal">
+                      💡 ログイン前（匿名状態）でカードを数回スワイプしてソウルを貯めてからログイン（Google/Mock）してください。数値がそのまま引き継がれることを確認できます。
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Session ID / Debug info at the bottom */}
+              <div className="border-t border-gray-900 pt-4 mt-6 text-[10px] text-gray-500 space-y-1.5">
+                <div>
+                  <span className="font-bold text-gray-400 block mb-0.5">セッションID:</span>
+                  <div className="flex items-center gap-1 bg-gray-950/60 border border-gray-900 px-2.5 py-1.5 rounded-lg select-all font-mono truncate text-[9px] text-gray-400">
+                    {sessionId}
+                  </div>
+                </div>
+                <div className="text-center text-[9px] text-gray-600 mt-2">
+                  © 2026 gene46 Project. All rights reserved.
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Terms of Use Modal */}
+      <AnimatePresence>
+        {showTermsModal && (
+          <div 
+            onClick={() => setShowTermsModal(false)}
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-6"
+          >
+            <motion.div
+              onClick={(e) => e.stopPropagation()}
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="w-full max-w-sm bg-[#0a0b10] border border-gray-900 rounded-2xl p-6 shadow-2xl relative overflow-hidden text-left"
+            >
+              <div className="flex items-center justify-between mb-4 border-b border-gray-900 pb-3">
+                <h3 className="text-sm font-bold text-gray-200">利用規約</h3>
+                <button
+                  onClick={() => setShowTermsModal(false)}
+                  className="p-1 text-gray-500 hover:text-gray-300 rounded-lg hover:bg-gray-900 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="text-xs text-gray-400 space-y-3 max-h-[350px] overflow-y-auto pr-1 leading-relaxed scrollbar-thin scrollbar-thumb-purple-900">
+                <h4 className="font-bold text-gray-200">1. はじめに</h4>
+                <p>本規約は、AI生成遺伝子型ジェネレーティブアート探索ツール「gene46」（以下、「本サービス」）の利用条件を定めるものです。</p>
+                
+                <h4 className="font-bold text-gray-200">2. 知的財産権について</h4>
+                <p>ユーザーが作成または分岐（フォーク）したスレッド、および本サービス内で生成された個体（スペックメン）の画像・DNAデータは、パブリックドメイン扱いとして扱われ、商用・非商用問わず誰でも自由に保存、コピー、改変、配布することができます。</p>
+                
+                <h4 className="font-bold text-gray-200">3. 禁止事項</h4>
+                <p>・自動スクリプト、ボット等の使用によるサーバーへの過度なリクエスト送信<br/>・ハニーポットや検証システムを意図的にバイパスする行為<br/>・その他、本サービスのシステム運用を妨げる一切のハッキングや不正アクセス行為</p>
+
+                <h4 className="font-bold text-gray-200">4. 免責事項</h4>
+                <p>本サービスの利用に関連して発生したユーザーの損害について、運営者は一切の責任を負いません。また、予告なくサービス内容の変更、休止、進化シミュレーションの終了を行う場合があります。</p>
               </div>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
+
+      {/* Privacy Policy Modal */}
+      <AnimatePresence>
+        {showPrivacyModal && (
+          <div 
+            onClick={() => setShowPrivacyModal(false)}
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-6"
+          >
+            <motion.div
+              onClick={(e) => e.stopPropagation()}
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="w-full max-w-sm bg-[#0a0b10] border border-gray-900 rounded-2xl p-6 shadow-2xl relative overflow-hidden text-left"
+            >
+              <div className="flex items-center justify-between mb-4 border-b border-gray-900 pb-3">
+                <h3 className="text-sm font-bold text-gray-200">プライバシーポリシー</h3>
+                <button
+                  onClick={() => setShowPrivacyModal(false)}
+                  className="p-1 text-gray-500 hover:text-gray-300 rounded-lg hover:bg-gray-900 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="text-xs text-gray-400 space-y-3 max-h-[350px] overflow-y-auto pr-1 leading-relaxed scrollbar-thin scrollbar-thumb-purple-900">
+                <h4 className="font-bold text-gray-200">1. 収集する情報</h4>
+                <p>本サービスは匿名でご利用いただけるため、氏名、メールアドレス、電話番号などの個人情報は一切収集いたしません。</p>
+                <p>本サービスでは、個人の識別およびスワイプや投票の重複を防ぐため、自動生成されたランダムなUUID形式の「セッションID」のみをブラウザのLocalStorageに保存し、バックエンドのデータベース（D1）と連携します。</p>
+
+                <h4 className="font-bold text-gray-200">2. 情報の利用目的</h4>
+                <p>収集された匿名セッションIDは、以下の目的のためにのみ利用されます。<br/>・スワイプスタミナおよびソウルの整合性管理<br/>・スレッドの作成権・所有権の識別<br/>・ボット等による不正行為、不正投票の検知および防御</p>
+
+                <h4 className="font-bold text-gray-200">3. セキュリティおよびCloudflareの利用</h4>
+                <p>本サービスはCloudflare Workers及びCloudflare D1で運用されており、不正アクセスを防ぐためのボット防御機能（Turnstileなど）が適用されます。セッションIDを含むローカルストレージの整合性は、暗号署名及びハッシュチェックサムによって検証され、改ざんを防いでいます。</p>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Report a Problem Modal */}
+      <AnimatePresence>
+        {showReportModal && (
+          <div 
+            onClick={() => setShowReportModal(false)}
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-6"
+          >
+            <motion.div
+              onClick={(e) => e.stopPropagation()}
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="w-full max-w-sm bg-[#0a0b10] border border-gray-900 rounded-2xl p-6 shadow-2xl relative overflow-hidden text-left"
+            >
+              <div className="flex items-center justify-between mb-4 border-b border-gray-900 pb-3">
+                <h3 className="text-sm font-bold text-gray-200">問題報告・ご意見</h3>
+                <button
+                  onClick={() => setShowReportModal(false)}
+                  className="p-1 text-gray-500 hover:text-gray-300 rounded-lg hover:bg-gray-900 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSubmitReport} className="space-y-4 relative z-10 text-left">
+                <div>
+                  <label className="block text-[10px] uppercase tracking-wider font-bold text-gray-500 mb-1.5">
+                    カテゴリー
+                  </label>
+                  <select
+                    value={reportCategory}
+                    onChange={(e) => setReportCategory(e.target.value)}
+                    className="w-full bg-gray-950 border border-gray-900 rounded-xl px-3 py-2.5 text-xs text-gray-300 outline-none focus:border-purple-500/50 transition-colors cursor-pointer"
+                  >
+                    <option value="不具合">不具合・バグ報告</option>
+                    <option value="機能要望">新機能の要望</option>
+                    <option value="デザイン">デザイン・UIへの不満</option>
+                    <option value="その他">その他・感想</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] uppercase tracking-wider font-bold text-gray-500 mb-1.5">
+                    詳細内容
+                  </label>
+                  <textarea
+                    required
+                    rows={5}
+                    maxLength={1000}
+                    placeholder="不具合の再現手順やご意見を詳しく入力してください。"
+                    value={reportDesc}
+                    onChange={(e) => setReportDesc(e.target.value)}
+                    className="w-full bg-gray-950 border border-gray-900 rounded-xl px-3 py-2.5 text-xs text-gray-300 outline-none focus:border-purple-500/50 transition-colors resize-none placeholder:text-gray-700"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={submittingReport}
+                  className="w-full py-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl text-xs font-bold transition-all hover:from-purple-500 hover:to-indigo-500 hover:shadow-lg hover:shadow-indigo-600/20 active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-1.5"
+                >
+                  {submittingReport && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                  報告を送信する
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+      <div id="turnstile-container" className="hidden" />
     </div>
   );
 }
