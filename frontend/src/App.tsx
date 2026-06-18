@@ -5,6 +5,7 @@ import type { LineDNA, MosaicDNA } from '../../backend/src/shared-types';
 import { SwipeCard } from './components/SwipeCard';
 import { LineCanvas } from './components/LineCanvas';
 import { MosaicCanvas } from './components/MosaicCanvas';
+import { NoiseCard } from './components/NoiseCard';
 import { 
   playClick, 
   playSwipeLike, 
@@ -1706,7 +1707,7 @@ export default function App() {
                 ) : (
                   <div className="w-full h-full relative">
                     {cards
-                      .filter(card => !card.is_honeypot)
+                      .filter(card => !staminaData.isAdFree || !card.is_honeypot)
                       .slice(-3)
                       .map((card, idx, arr) => {
                       const isActive = idx === arr.length - 1;
@@ -1716,6 +1717,9 @@ export default function App() {
                           isActive={isActive}
                           onSwipe={(dir) => handleSwipe(dir, card.id)}
                           onTap={() => {
+                            if (card.is_honeypot) {
+                              return;
+                            }
                             playClick();
                             setSelectedCard({
                               ...card,
@@ -1734,6 +1738,8 @@ export default function App() {
                                 TEST
                               </span>
                             </div>
+                          ) : card.is_honeypot ? (
+                            <NoiseCard />
                           ) : mode === 'line' ? (
                             <LineCanvas 
                               dna={card.dna as LineDNA} 
