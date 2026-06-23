@@ -3795,37 +3795,12 @@ export default function App() {
                     {lang === 'en' ? 'Inquiry' : 'お問い合わせ'}
                   </h3>
                   
-                  {/* Centered Subtext with Mac / Windows app link */}
-                  <div className="text-xs text-gray-400 leading-relaxed mt-2.5 space-y-1">
+                  {/* Centered Subtext */}
+                  <div className="text-xs text-gray-400 leading-relaxed mt-2.5">
                     <p>
                       {lang === 'en'
                         ? 'Please contact us if you have any questions or issues.'
                         : '問題や質問があればお問い合わせください。'}
-                    </p>
-                    <p>
-                      {lang === 'en' ? (
-                        <>
-                          If you are using the Mac / Windows app, please contact us from{' '}
-                          <a 
-                            href={`mailto:contact@gene46.net?subject=gene46%20App%20Inquiry&body=${encodeURIComponent(body)}`}
-                            className="text-indigo-400 hover:text-indigo-300 hover:underline font-bold"
-                          >
-                            here
-                          </a>
-                          .
-                        </>
-                      ) : (
-                        <>
-                          Mac / Windowsのアプリをお使いの場合は{' '}
-                          <a 
-                            href={`mailto:contact@gene46.net?subject=gene46%20App%20Inquiry&body=${encodeURIComponent(body)}`}
-                            className="text-indigo-400 hover:text-indigo-300 hover:underline font-bold"
-                          >
-                            こちら
-                          </a>
-                          からお問い合わせください。
-                        </>
-                      )}
                     </p>
                   </div>
                 </div>
