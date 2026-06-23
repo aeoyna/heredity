@@ -466,6 +466,7 @@ export default function App() {
   const [showTermsModal, setShowTermsModal] = useState<boolean>(false);
   const [showPrivacyModal, setShowPrivacyModal] = useState<boolean>(false);
   const [showCommercialModal, setShowCommercialModal] = useState<boolean>(false);
+  const [showLimitsModal, setShowLimitsModal] = useState<boolean>(false);
   const [showReportModal, setShowReportModal] = useState<boolean>(false);
   const [contactCategory, setContactCategory] = useState<'bug' | 'other'>('bug');
 
@@ -1842,6 +1843,16 @@ export default function App() {
 
               <button
                 onClick={() => {
+                  setShowLimitsModal(true);
+                }}
+                className="w-full text-left px-4 py-3 hover:bg-gray-900/40 text-xs font-semibold text-gray-300 hover:text-white transition-all flex items-center justify-between border-none"
+              >
+                <span>{lang === 'ja' ? '使用制限' : 'Usage Limits'}</span>
+                <span className="text-gray-600 text-[10px]">→</span>
+              </button>
+
+              <button
+                onClick={() => {
                   playClick();
                   setShowReportModal(true);
                   setShowDrawer(false);
@@ -2001,7 +2012,7 @@ export default function App() {
               title="Save"
             >
               <span className="text-[7px] font-bold text-gray-600 uppercase tracking-widest">Save</span>
-              <Diamond className="w-5 h-5" />
+              <Star className={`w-5 h-5 ${view === 'threads' && threadsTab === 'saved' ? 'fill-purple-400' : ''}`} />
             </button>
 
 
@@ -2077,7 +2088,7 @@ export default function App() {
                     <span className="px-2 py-0.5 text-[8px] rounded bg-purple-950/30 border border-purple-500/10 text-purple-300 font-medium">
                       {activeThread.type === 'line' ? (lang === 'en' ? 'Line' : 'ライン') : (lang === 'en' ? 'Mosaic' : 'モザイク')}
                     </span>
-                    <Diamond className="w-3.5 h-3.5 text-purple-400 group-hover:scale-110 transition-transform" />
+                    <Star className="w-3.5 h-3.5 text-purple-400 fill-purple-400 group-hover:scale-110 transition-transform" />
                   </div>
                 </div>
               )}
@@ -3743,6 +3754,84 @@ export default function App() {
                     <div>
                       <h4 className="font-bold text-gray-200">■ Recommended System Environment</h4>
                       <p>Any standard desktop or mobile web browser with internet connection (latest version of Chrome, Safari, Edge, Firefox, etc.).</p>
+                    </div>
+                  </>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Usage Limits Modal */}
+      <AnimatePresence>
+        {showLimitsModal && (
+          <div 
+            onClick={() => setShowLimitsModal(false)}
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-6"
+          >
+            <motion.div
+              onClick={(e) => e.stopPropagation()}
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="w-full max-w-sm bg-[#0a0b10] border border-gray-900 rounded-2xl p-6 shadow-2xl relative overflow-hidden text-left"
+            >
+              <div className="flex items-center justify-between mb-4 border-b border-gray-900 pb-3">
+                <h3 className="text-sm font-bold text-gray-200">
+                  {lang === 'en' ? 'Usage Limits' : '使用制限'}
+                </h3>
+                <button
+                  onClick={() => setShowLimitsModal(false)}
+                  className="p-1 text-gray-500 hover:text-gray-300 rounded-lg hover:bg-gray-900 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="text-xs text-gray-400 space-y-4 max-h-[350px] overflow-y-auto pr-1 leading-relaxed scrollbar-thin scrollbar-thumb-purple-900">
+                {lang === 'en' ? (
+                  <>
+                    <div>
+                      <h4 className="font-bold text-gray-200">■ Name of Prepaid Payment Instrument</h4>
+                      <p>Souls (Crystals)</p>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-gray-200">■ Monthly Purchase Limits</h4>
+                      <p>For the protection of minors and sound service usage, we establish monthly purchase limits for "Souls" based on age groups:</p>
+                      <ul className="list-disc pl-4 mt-1.5 space-y-1">
+                        <li>Under 16 years old: Up to 5,000 JPY (or equivalent in USD) / month</li>
+                        <li>16 to 19 years old: Up to 20,000 JPY (or equivalent in USD) / month</li>
+                        <li>20 years old or older: No limit</li>
+                      </ul>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-gray-200">■ Important Notes</h4>
+                      <p>• Age verification will be displayed during the purchase checkout process. Please select your correct age.<br/>• Limits are calculated based on the total purchase amount per session/account from the 1st day to the last day of each calendar month.</p>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <h4 className="font-bold text-gray-200">■ 前払式支払手段の名称</h4>
+                      <p>ソウル（水晶）</p>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-gray-200">■ 購入限度額（月間制限）</h4>
+                      <p>未成年者の保護および健全なサービス利用のため、年齢ごとに月間での「ソウル」購入限度額を以下の通り設定しております。</p>
+                      <ul className="list-disc pl-4 mt-1.5 space-y-1">
+                        <li>16歳未満：月間 5,000円（または相当額の米ドル）まで</li>
+                        <li>16歳以上19歳以下：月間 20,000円（または相当額の米ドル）まで</li>
+                        <li>20歳以上：制限なし</li>
+                      </ul>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-gray-200">■ 注意事項</h4>
+                      <p>• 購入手続きの際、年齢確認の画面が表示されます。必ず正しい年齢を選択の上ご購入ください。<br/>• 本制限は、アカウントごとに毎月1日〜末日までの合計購入金額に対して適用されます。</p>
                     </div>
                   </>
                 )}
