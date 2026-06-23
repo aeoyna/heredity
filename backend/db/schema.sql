@@ -39,7 +39,10 @@ CREATE TABLE IF NOT EXISTS user_sessions (
     lifetime_swipes INTEGER DEFAULT 0,
     last_recovery_time INTEGER DEFAULT 0,
     souls INTEGER DEFAULT 0,
-    is_ad_free INTEGER DEFAULT 0
+    is_ad_free INTEGER DEFAULT 0,
+    outs INTEGER DEFAULT 0,
+    last_out_recovery_time INTEGER DEFAULT 0,
+    swipes_since_last_out_recovery INTEGER DEFAULT 0
 );
 
 -- Indexing for speed

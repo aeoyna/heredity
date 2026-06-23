@@ -64,7 +64,13 @@ interface PoolDBRow {
 }
 
 // Perform evolution loop for a specific Thread
-export async function evolveThread(db: D1Database, threadId: string, threadType: 'line' | 'mosaic', representativeCardId?: string | null): Promise<{ currentGen: number; nextGen: number }> {
+export async function evolveThread(
+  db: D1Database,
+  threadId: string,
+  threadType: 'line' | 'mosaic',
+  representativeCardId?: string | null,
+  runAsync?: (promise: Promise<any>) => void
+): Promise<{ currentGen: number; nextGen: number }> {
   // 1. Get the current active generation
   const currentGenRow = await db.prepare(
     "SELECT MAX(generation) as gen FROM specimens WHERE thread_id = ? AND status = 'active'"
@@ -195,37 +201,62 @@ export async function evolveThread(db: D1Database, threadId: string, threadType:
     });
   }
 
-  // Write Gen+1 to D1 in batch
-  const statements = [];
+  // 1. 代表値の更新 (同期処理)
+  await db.prepare(`
+    UPDATE specimens SET is_representative = 1 WHERE id = (
+      SELECT id FROM specimens 
+      WHERE thread_id = ? AND generation = ? 
+      ORDER BY CASE WHEN id = ? THEN 1 ELSE 0 END DESC, likes_count DESC, id ASC 
+      LIMIT 1
+    )
+  `).bind(threadId, currentGen, representativeCardId || '').run();
 
-  // Update the representative specimen for the current (ending) generation
-  statements.push(
-    db.prepare(`
-      UPDATE specimens SET is_representative = 1 WHERE id = (
-        SELECT id FROM specimens 
-        WHERE thread_id = ? AND generation = ? 
-        ORDER BY CASE WHEN id = ? THEN 1 ELSE 0 END DESC, likes_count DESC, id ASC 
-        LIMIT 1
-      )
-    `).bind(threadId, currentGen, representativeCardId || '')
-  );
-
-  for (const item of nextGenerationPool) {
+  // 2. 最初の20件を同期的にインサート (ユーザーが即座にスワイプ再開できるよう20件にする)
+  const firstChunk = nextGenerationPool.slice(0, 20);
+  const initialStatements = firstChunk.map(item => {
     const id = `${threadType}_${generateUUID()}`;
     const dnaStr = JSON.stringify(item.dna);
-    statements.push(
-      db.prepare(
-        "INSERT INTO specimens (id, thread_id, generation, dna, likes_count, nopes_count, is_honeypot, is_representative, status) VALUES (?, ?, ?, ?, 0, 0, ?, 0, 'active')"
-      ).bind(id, threadId, nextGen, dnaStr, item.isHoneypot)
-    );
+    return db.prepare(
+      "INSERT INTO specimens (id, thread_id, generation, dna, likes_count, nopes_count, is_honeypot, is_representative, status) VALUES (?, ?, ?, ?, 0, 0, ?, 0, 'active')"
+    ).bind(id, threadId, nextGen, dnaStr, item.isHoneypot);
+  });
+  await db.batch(initialStatements);
+
+  // 3. 残りの80件と現世代のアーカイブ/削除を非同期でバッチ処理
+  const asyncInsertTask = (async () => {
+    const remainingPool = nextGenerationPool.slice(20);
+    const CHUNK_SIZE = 80;
+    for (let i = 0; i < remainingPool.length; i += CHUNK_SIZE) {
+      const chunk = remainingPool.slice(i, i + CHUNK_SIZE);
+      const chunkStatements = chunk.map(item => {
+        const id = `${threadType}_${generateUUID()}`;
+        const dnaStr = JSON.stringify(item.dna);
+        return db.prepare(
+          "INSERT INTO specimens (id, thread_id, generation, dna, likes_count, nopes_count, is_honeypot, is_representative, status) VALUES (?, ?, ?, ?, 0, 0, ?, 0, 'active')"
+        ).bind(id, threadId, nextGen, dnaStr, item.isHoneypot);
+      });
+      await db.batch(chunkStatements);
+    }
+    
+    // 全インサート後に現世代をアーカイブまたは削除
+    if (currentGen % 10 === 0) {
+      await db.prepare(
+        "UPDATE specimens SET status = 'archived' WHERE thread_id = ? AND generation = ?"
+      ).bind(threadId, currentGen).run();
+    } else {
+      await db.prepare(
+        "DELETE FROM specimens WHERE thread_id = ? AND generation = ?"
+      ).bind(threadId, currentGen).run();
+    }
+  })();
+
+  // 非同期タスクを実行環境(Wrangler/Cloudflare Workers)の ctx.waitUntil に流す
+  if (runAsync) {
+    runAsync(asyncInsertTask);
+  } else {
+    // ローカルテスト用やコールバックが無い場合は待つ
+    await asyncInsertTask;
   }
-
-  // Archive current generation
-  statements.push(
-    db.prepare("UPDATE specimens SET status = 'archived' WHERE thread_id = ? AND generation = ?").bind(threadId, currentGen)
-  );
-
-  await db.batch(statements);
 
   return { currentGen, nextGen };
 }

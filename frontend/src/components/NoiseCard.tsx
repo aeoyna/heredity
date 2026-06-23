@@ -3,9 +3,10 @@ import { ShieldAlert, Zap } from 'lucide-react';
 
 interface NoiseCardProps {
   className?: string;
+  requiredSwipe?: 'like' | 'nope';
 }
 
-export const NoiseCard: React.FC<NoiseCardProps> = ({ className = '' }) => {
+export const NoiseCard: React.FC<NoiseCardProps> = ({ className = '', requiredSwipe }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -88,13 +89,25 @@ export const NoiseCard: React.FC<NoiseCardProps> = ({ className = '' }) => {
           </div>
         </div>
         
-        <div className="space-y-1.5">
+        <div className="space-y-2 flex flex-col items-center">
           <h3 className="text-xs font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-300 via-purple-100 to-indigo-300 uppercase tracking-widest">
             MUTATION NOISE
           </h3>
-          <p className="text-[9.5px] text-gray-500 leading-relaxed max-w-[220px]">
-            This specimen is corrupted by evolutionary static. Swipe left (Nope) or right (Like) to pass through.
+          <p className="text-[9.5px] text-gray-500 leading-relaxed max-w-[220px] mb-1">
+            This specimen is corrupted by evolutionary static. Swipe in the directed direction to bypass.
           </p>
+          
+          {requiredSwipe === 'like' ? (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] font-black tracking-widest uppercase shadow-[0_0_12px_rgba(16,185,129,0.2)] animate-pulse">
+              <span>Swipe Right (Like)</span>
+              <span className="text-xs font-black">→</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-pink-500/10 border border-pink-500/30 text-pink-400 text-[10px] font-black tracking-widest uppercase shadow-[0_0_12px_rgba(244,63,94,0.2)] animate-pulse">
+              <span className="text-xs font-black">←</span>
+              <span>Swipe Left (Nope)</span>
+            </div>
+          )}
         </div>
       </div>
 

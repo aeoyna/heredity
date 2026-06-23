@@ -467,9 +467,7 @@ export default function App() {
   const [showPrivacyModal, setShowPrivacyModal] = useState<boolean>(false);
   const [showCommercialModal, setShowCommercialModal] = useState<boolean>(false);
   const [showReportModal, setShowReportModal] = useState<boolean>(false);
-  const [reportCategory, setReportCategory] = useState<string>('不具合');
-  const [reportDesc, setReportDesc] = useState<string>('');
-  const [submittingReport, setSubmittingReport] = useState<boolean>(false);
+  const [contactCategory, setContactCategory] = useState<'bug' | 'other'>('bug');
 
   const [nextRecoverySeconds, setNextRecoverySeconds] = useState<number>(0);
 
@@ -1601,41 +1599,11 @@ export default function App() {
     }
   };
 
-  const handleSubmitReport = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!reportDesc.trim()) {
-      showMsg(lang === 'en' ? 'Please enter the details.' : '内容を入力してください。', 'error');
-      return;
-    }
-    setSubmittingReport(true);
-    try {
-      const res = await fetch(`${API_BASE}/api/report`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          category: reportCategory,
-          description: reportDesc
-        })
-      });
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.error || `HTTP ${res.status}`);
-      }
-      showMsg(lang === 'en' ? 'Thank you for your report.' : 'ご報告ありがとうございました。', 'success');
-      logEvent('send_report', { category: reportCategory });
-      setReportDesc('');
-      setShowReportModal(false);
-      setShowDrawer(false);
-    } catch (err: any) {
-      console.error(err);
-      showMsg(lang === 'en' ? `Failed to send report: ${err.message}` : `報告に失敗しました: ${err.message}`, 'error');
-      playError();
-    } finally {
-      setSubmittingReport(false);
-    }
+  const copyToClipboard = (text: string, msg: string) => {
+    navigator.clipboard.writeText(text).then(
+      () => showMsg(msg, 'success'),
+      () => showMsg('Failed to copy', 'error')
+    );
   };
 
   // Delete Thread API Call
@@ -1869,6 +1837,18 @@ export default function App() {
                 className="w-full text-left px-4 py-3 hover:bg-gray-900/40 text-xs font-semibold text-gray-300 hover:text-white transition-all flex items-center justify-between border-none"
               >
                 <span>{lang === 'ja' ? '特定商取引法に基づく表記・返金' : 'Legal & Refund Policy'}</span>
+                <span className="text-gray-600 text-[10px]">→</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  playClick();
+                  setShowReportModal(true);
+                  setShowDrawer(false);
+                }}
+                className="w-full text-left px-4 py-3 hover:bg-gray-900/40 text-xs font-semibold text-gray-300 hover:text-white transition-all flex items-center justify-between border-none"
+              >
+                <span>{lang === 'ja' ? 'お問い合わせ' : 'Contact & Support'}</span>
                 <span className="text-gray-600 text-[10px]">→</span>
               </button>
             </div>
@@ -3772,76 +3752,197 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Report a Problem Modal */}
+      {/* Inquiry / Contact Modal */}
       <AnimatePresence>
-        {showReportModal && (
-          <div 
-            onClick={() => setShowReportModal(false)}
-            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-6"
-          >
-            <motion.div
-              onClick={(e) => e.stopPropagation()}
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="w-full max-w-sm bg-[#0a0b10] border border-gray-900 rounded-2xl p-6 shadow-2xl relative overflow-hidden text-left"
+        {showReportModal && (() => {
+          const subject = contactCategory === 'bug'
+            ? (lang === 'en' ? 'gene46 Bug Report' : 'gene46の不具合報告')
+            : (lang === 'en' ? 'gene46 Inquiry' : 'gene46に関するお問い合わせ');
+          
+          const body = contactCategory === 'bug'
+            ? (lang === 'en'
+                ? `## Bug Description\n(Please enter details here)\n\n## Steps to Reproduce\n1.\n2.\n3.\n\n## System Environment\n(e.g. iPhone 15 / Safari)`
+                : `## 不具合の説明\n(ここに不具合の詳細を入力してください)\n\n## 再現手順\n1.\n2.\n3.\n\n## 動作環境 (端末・ブラウザなど)\n(例: iPhone 15 / Safari)`)
+            : (lang === 'en'
+                ? `## Inquiry Details\n(Please enter details here)`
+                : `## お問い合わせ内容\n(ここにお問い合わせ内容を入力してください)`);
+
+          const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=contact@gene46.net&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+
+          return (
+            <div 
+              onClick={() => setShowReportModal(false)}
+              className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-6"
             >
-              <div className="flex items-center justify-between mb-4 border-b border-gray-900 pb-3">
-                <h3 className="text-sm font-bold text-gray-200">
-                  {lang === 'en' ? 'Report a Problem / Feedback' : '問題報告・ご意見'}
-                </h3>
+              <motion.div
+                onClick={(e) => e.stopPropagation()}
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                className="w-full max-w-md bg-[#0a0b10] border border-gray-900 rounded-3xl p-6 shadow-2xl relative overflow-hidden text-left"
+              >
+                {/* Close Button absolute */}
                 <button
                   onClick={() => setShowReportModal(false)}
-                  className="p-1 text-gray-500 hover:text-gray-300 rounded-lg hover:bg-gray-900 transition-colors"
+                  className="absolute top-4 right-4 p-1.5 text-gray-500 hover:text-gray-300 rounded-full hover:bg-gray-900 transition-colors"
                 >
                   <X className="w-4 h-4" />
                 </button>
-              </div>
 
-              <form onSubmit={handleSubmitReport} className="space-y-4 relative z-10 text-left">
-                <div>
-                  <label className="block text-[10px] uppercase tracking-wider font-bold text-gray-500 mb-1.5">
-                    {lang === 'en' ? 'Category' : 'カテゴリー'}
-                  </label>
-                  <select
-                    value={reportCategory}
-                    onChange={(e) => setReportCategory(e.target.value)}
-                    className="w-full bg-gray-950 border border-gray-900 rounded-xl px-3 py-2.5 text-xs text-gray-300 outline-none focus:border-purple-500/50 transition-colors cursor-pointer"
-                  >
-                    <option value="不具合">{lang === 'en' ? 'Bug / Problem Report' : '不具合・バグ報告'}</option>
-                    <option value="機能要望">{lang === 'en' ? 'Feature Request' : '新機能の要望'}</option>
-                    <option value="デザイン">{lang === 'en' ? 'Design / UI Feedback' : 'デザイン・UIへの不満'}</option>
-                    <option value="その他">{lang === 'en' ? 'Other / Feedback' : 'その他・感想'}</option>
-                  </select>
+                {/* Centered Header */}
+                <div className="text-center mb-6 mt-2">
+                  <h3 className="text-xl font-black text-gray-100">
+                    {lang === 'en' ? 'Inquiry' : 'お問い合わせ'}
+                  </h3>
+                  
+                  {/* Centered Subtext with Mac / Windows app link */}
+                  <div className="text-xs text-gray-400 leading-relaxed mt-2.5 space-y-1">
+                    <p>
+                      {lang === 'en'
+                        ? 'Please contact us if you have any questions or issues.'
+                        : '問題や質問があればお問い合わせください。'}
+                    </p>
+                    <p>
+                      {lang === 'en' ? (
+                        <>
+                          If you are using the Mac / Windows app, please contact us from{' '}
+                          <a 
+                            href={`mailto:contact@gene46.net?subject=gene46%20App%20Inquiry&body=${encodeURIComponent(body)}`}
+                            className="text-indigo-400 hover:text-indigo-300 hover:underline font-bold"
+                          >
+                            here
+                          </a>
+                          .
+                        </>
+                      ) : (
+                        <>
+                          Mac / Windowsのアプリをお使いの場合は{' '}
+                          <a 
+                            href={`mailto:contact@gene46.net?subject=gene46%20App%20Inquiry&body=${encodeURIComponent(body)}`}
+                            className="text-indigo-400 hover:text-indigo-300 hover:underline font-bold"
+                          >
+                            こちら
+                          </a>
+                          からお問い合わせください。
+                        </>
+                      )}
+                    </p>
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-[10px] uppercase tracking-wider font-bold text-gray-500 mb-1.5">
-                    {lang === 'en' ? 'Description' : '詳細内容'}
-                  </label>
-                  <textarea
-                    required
-                    rows={5}
-                    maxLength={1000}
-                    placeholder={lang === 'en' ? 'Please describe the steps to reproduce the issue or your feedback in detail.' : '不具合の再現手順やご意見を詳しく入力してください。'}
-                    value={reportDesc}
-                    onChange={(e) => setReportDesc(e.target.value)}
-                    className="w-full bg-gray-950 border border-gray-900 rounded-xl px-3 py-2.5 text-xs text-gray-300 outline-none focus:border-purple-500/50 transition-colors resize-none placeholder:text-gray-700"
-                  />
-                </div>
+                <div className="space-y-5">
+                  {/* Category Pill Tabs */}
+                  <div className="flex p-1 bg-gray-950 border border-gray-900 rounded-2xl font-extrabold text-xs">
+                    <button
+                      type="button"
+                      onClick={() => { playClick(); setContactCategory('bug'); }}
+                      className={`flex-1 py-2.5 text-center rounded-xl transition-all duration-200 ${
+                        contactCategory === 'bug'
+                          ? 'bg-gray-100 text-gray-950 shadow-sm'
+                          : 'text-gray-400 hover:text-gray-200'
+                      }`}
+                    >
+                      {lang === 'en' ? 'Bug Report' : 'バグ報告'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { playClick(); setContactCategory('other'); }}
+                      className={`flex-1 py-2.5 text-center rounded-xl transition-all duration-200 ${
+                        contactCategory === 'other'
+                          ? 'bg-gray-100 text-gray-950 shadow-sm'
+                          : 'text-gray-400 hover:text-gray-200'
+                      }`}
+                    >
+                      {lang === 'en' ? 'Other' : 'その他'}
+                    </button>
+                  </div>
 
-                <button
-                  type="submit"
-                  disabled={submittingReport}
-                  className="w-full py-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl text-xs font-bold transition-all hover:from-purple-500 hover:to-indigo-500 hover:shadow-lg hover:shadow-indigo-600/20 active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-1.5"
-                >
-                  {submittingReport && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                  {lang === 'en' ? 'Send Report' : '報告を送信する'}
-                </button>
-              </form>
-            </motion.div>
-          </div>
-        )}
+                  {/* Email address display & Gmail button */}
+                  <div className="space-y-2">
+                    <p className="text-xs text-gray-300 leading-normal">
+                      {lang === 'en'
+                        ? 'Please send your inquiry to the address below:'
+                        : '以下のメールアドレスにお問い合わせ内容を送信してください。'}
+                    </p>
+                    <div className="flex items-center justify-between px-4 py-3 bg-gray-950 border border-gray-900 rounded-2xl text-xs gap-3">
+                      <a 
+                        href={`mailto:contact@gene46.net?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`}
+                        className="text-indigo-400 hover:text-indigo-300 hover:underline font-mono font-bold text-sm truncate max-w-[200px]"
+                        title={lang === 'en' ? 'Open in mail client' : 'メールソフトで開く'}
+                      >
+                        contact@gene46.net
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          playClick();
+                          window.open(gmailUrl, '_blank');
+                        }}
+                        className="px-3.5 py-2 bg-gray-900 hover:bg-gray-800 border border-gray-800 text-gray-200 hover:text-white rounded-full text-[11px] font-bold tracking-wide transition-all active:scale-[0.97] flex items-center gap-1 shadow-sm"
+                      >
+                        {lang === 'en' ? 'Open in Gmail' : 'Gmailで開く'}
+                        <span className="text-gray-500 font-mono text-[9px]">&gt;</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Template Box */}
+                  <div className="p-5 bg-gray-950/30 border border-gray-900 rounded-2xl text-xs space-y-4 shadow-inner">
+                    <span className="block text-sm font-extrabold text-gray-200 border-b border-gray-900/60 pb-2">
+                      {lang === 'en' ? 'Email Template' : 'メールのテンプレート'}
+                    </span>
+
+                    {/* Subject */}
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold text-gray-400">
+                          {lang === 'en' ? 'Subject' : '件名'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => copyToClipboard(subject, lang === 'en' ? 'Copied subject!' : '件名をコピーしました！')}
+                          className="text-gray-500 hover:text-indigo-400 p-0.5 rounded transition-colors flex items-center justify-center active:scale-90"
+                          title={lang === 'en' ? 'Copy Subject' : '件名をコピー'}
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      <div 
+                        onClick={() => copyToClipboard(subject, lang === 'en' ? 'Copied subject!' : '件名をコピーしました！')}
+                        className="w-full bg-gray-950 border border-gray-900/80 rounded-xl px-3 py-2.5 text-gray-300 font-mono text-xs select-all cursor-pointer hover:border-gray-800/80 transition-colors"
+                      >
+                        {subject}
+                      </div>
+                    </div>
+
+                    {/* Body */}
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold text-gray-400">
+                          {lang === 'en' ? 'Body' : '本文'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => copyToClipboard(body, lang === 'en' ? 'Copied body template!' : '本文のテンプレートをコピーしました！')}
+                          className="text-gray-500 hover:text-indigo-400 p-0.5 rounded transition-colors flex items-center justify-center active:scale-90"
+                          title={lang === 'en' ? 'Copy Body' : '本文をコピー'}
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      <pre 
+                        onClick={() => copyToClipboard(body, lang === 'en' ? 'Copied body template!' : '本文のテンプレートをコピーしました！')}
+                        className="w-full bg-gray-950 border border-gray-900/80 rounded-xl px-3 py-3 text-gray-300 font-mono text-xs select-all cursor-pointer whitespace-pre-wrap leading-relaxed max-h-[160px] overflow-y-auto scrollbar-thin scrollbar-thumb-gray-800 hover:border-gray-800/80 transition-colors"
+                      >
+                        {body}
+                      </pre>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          );
+        })()}
       </AnimatePresence>
       <div id="turnstile-container" className="hidden" />
       </div>

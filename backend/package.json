@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Project-X backend running on Cloudflare Workers",
   "main": "src/index.ts",
+  "dependencies": {
+    "stripe": "^14.22.0"
+  },
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",

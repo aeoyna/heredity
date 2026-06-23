@@ -27,3 +27,9 @@ backend/db/local_dump.sql
 skills-lock.json
 */skills-lock.json
 
+# Local environment variables
+.dev.vars
+backend/.dev.vars
+frontend/.env.local
+frontend/.env.*.local
+

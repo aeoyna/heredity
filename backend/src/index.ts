@@ -1,5 +1,6 @@
 import { D1Database, ScheduledEvent, ExecutionContext } from '@cloudflare/workers-types';
 import { evolveThread, mutateLineDNA, mutateMosaicDNA } from './ga';
+import Stripe from 'stripe';
 import { 
   generateRandomLineDNA, 
   generateRandomMosaicDNA, 
@@ -20,6 +21,8 @@ export interface Env {
   ASSETS: Fetcher;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
 }
 
 // CORS Headers Helper
@@ -134,12 +137,19 @@ async function authenticateSession(request: Request, env: Env): Promise<{ sessio
     });
   }
 
-  // Check if session is banned
+  // Check if session exists and is not banned
   const session = await env.DB.prepare(
     "SELECT banned FROM user_sessions WHERE session_id = ?"
   ).bind(payload.session_id).first<{ banned: number }>();
 
-  if (session && session.banned === 1) {
+  if (!session) {
+    return new Response(JSON.stringify({ error: 'Unauthorized. Session has expired or been replaced.' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(request) }
+    });
+  }
+
+  if (session.banned === 1) {
     return new Response(JSON.stringify({ error: 'Forbidden. Your account has been permanently suspended.' }), {
       status: 403,
       headers: { 'Content-Type': 'application/json', ...corsHeaders(request) }
@@ -335,7 +345,10 @@ async function handleGetGoogleCallback(request: Request, env: Env): Promise<Resp
       lifetimeSwipes: row?.lifetime_swipes ?? 0,
       lastRecoveryTime: row?.last_recovery_time ?? Date.now(),
       souls: row?.souls ?? 0,
-      isAdFree: (row?.is_ad_free ?? 0) === 1
+      isAdFree: (row?.is_ad_free ?? 0) === 1,
+      outs: row?.outs ?? 0,
+      lastOutRecoveryTime: row?.last_out_recovery_time ?? 0,
+      swipesSinceLastOutRecovery: row?.swipes_since_last_out_recovery ?? 0
     });
 
     // 1. Fetch current anonymous session S_anon
@@ -361,7 +374,10 @@ async function handleGetGoogleCallback(request: Request, env: Env): Promise<Resp
              lifetime_swipes = ?,
              last_recovery_time = ?,
              souls = ?,
-             is_ad_free = ?
+             is_ad_free = ?,
+             outs = ?,
+             last_out_recovery_time = ?,
+             swipes_since_last_out_recovery = ?
          WHERE session_id = ?`
       ).bind(
         googleUserId,
@@ -371,6 +387,9 @@ async function handleGetGoogleCallback(request: Request, env: Env): Promise<Resp
         merged.lastRecoveryTime,
         merged.souls,
         merged.isAdFree ? 1 : 0,
+        merged.outs ?? 0,
+        merged.lastOutRecoveryTime ?? 0,
+        merged.swipesSinceLastOutRecovery ?? 0,
         sessionId
       ).run();
 
@@ -488,6 +507,9 @@ export default {
       if (url.pathname === '/api/threads' && request.method === 'GET') {
         return await handleGetThreads(request, env);
       }
+      if (url.pathname === '/api/geo' && request.method === 'GET') {
+        return await handleGetGeo(request, env);
+      }
       if (url.pathname === '/api/threads/likes' && request.method === 'GET') {
         return await handleGetThreadLikes(request, env);
       }
@@ -496,6 +518,9 @@ export default {
       }
 
       // Admin endpoints
+      if (url.pathname === '/api/stripe/webhook' && request.method === 'POST') {
+        return await handlePostStripeWebhook(request, env);
+      }
       if (url.pathname === '/api/admin/run-ga' && request.method === 'POST') {
         return await handleAdminRunGA(request, env);
       }
@@ -507,17 +532,26 @@ export default {
           return sessionOrResponse;
         }
 
+        if (url.pathname === '/api/stripe/create-checkout-session' && request.method === 'POST') {
+          return await handlePostCreateCheckoutSession(request, env, sessionOrResponse);
+        }
         if (url.pathname === '/api/threads' && request.method === 'POST') {
-          return await handlePostThread(request, env, sessionOrResponse);
+          return await handlePostThread(request, env, sessionOrResponse, ctx);
         }
         if (url.pathname === '/api/threads/delete' && request.method === 'POST') {
           return await handlePostDeleteThread(request, env, sessionOrResponse);
         }
+        if (url.pathname === '/api/threads/rename' && request.method === 'POST') {
+          return await handlePostRenameThread(request, env, sessionOrResponse);
+        }
         if (url.pathname === '/api/cards' && request.method === 'GET') {
-          return await handleGetCards(request, env, sessionOrResponse);
+          return await handleGetCards(request, env, sessionOrResponse, ctx);
         }
         if (url.pathname === '/api/swipe' && request.method === 'POST') {
           return await handlePostSwipe(request, env, sessionOrResponse);
+        }
+        if (url.pathname === '/api/swipe/bulk' && request.method === 'POST') {
+          return await handlePostSwipeBulk(request, env, sessionOrResponse);
         }
         if (url.pathname === '/api/report' && request.method === 'POST') {
           return await handlePostReport(request, env, sessionOrResponse);
@@ -571,6 +605,19 @@ export default {
   }
 };
 
+// GET /api/geo
+async function handleGetGeo(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const testCountry = url.searchParams.get('test_country');
+  const country = testCountry || request.headers.get('CF-IPCountry') || (request as any).cf?.country || 'JP';
+  return new Response(JSON.stringify({ country }), {
+    headers: {
+      'Content-Type': 'application/json',
+      ...corsHeaders(request)
+    }
+  });
+}
+
 // GET /api/threads
 // Ranking: Hacker News-style hybrid score = (total_swipes + 1) / (age_hours + 2)^1.5
 // New projects appear near top by default; active ones stay visible; all decay over time.
@@ -598,13 +645,25 @@ async function handleGetThreads(request: Request, env: Env): Promise<Response> {
 }
 
 // POST /api/threads
-async function handlePostThread(request: Request, env: Env, session: { session_id: string }): Promise<Response> {
+async function handlePostThread(
+  request: Request,
+  env: Env,
+  session: { session_id: string },
+  ctx: ExecutionContext
+): Promise<Response> {
   const sessionId = session.session_id;
   const body = await request.json<{ name?: string; type?: 'line' | 'mosaic'; fork_dna?: any }>();
   const { name, type, fork_dna } = body;
 
   if (!name || !type || (type !== 'line' && type !== 'mosaic')) {
     return new Response(JSON.stringify({ error: 'Invalid name or type. Type must be "line" or "mosaic"' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(request) }
+    });
+  }
+
+  if (containsInappropriateContent(name)) {
+    return new Response(JSON.stringify({ error: 'Inappropriate content detected in thread name' }), {
       status: 400,
       headers: { 'Content-Type': 'application/json', ...corsHeaders(request) }
     });
@@ -619,7 +678,7 @@ async function handlePostThread(request: Request, env: Env, session: { session_i
   ).bind(threadId, name, type, sessionId || null, nowStr).run();
 
   // 2. Generate 100 specimens for Gen 0 (97 random or mutated, 3 honeypots)
-  const statements = [];
+  const specimensPool = [];
   for (let i = 0; i < 100; i++) {
     const specimenId = `${type}_${crypto.randomUUID()}`;
     const isHoneypot = i < 3 ? 1 : 0;
@@ -642,26 +701,60 @@ async function handlePostThread(request: Request, env: Env, session: { session_i
         dna = generateRandomMosaicDNA();
       }
     }
-    const dnaStr = JSON.stringify(dna);
-
-    statements.push(
-      env.DB.prepare(
-        "INSERT INTO specimens (id, thread_id, generation, dna, likes_count, nopes_count, is_honeypot, status) VALUES (?, ?, 0, ?, 0, 0, ?, 'active')"
-      ).bind(specimenId, threadId, dnaStr, isHoneypot)
-    );
+    specimensPool.push({ id: specimenId, dna, isHoneypot });
   }
 
-  await env.DB.batch(statements);
+  // 最初の20件（ハニーポット3件含む、初期スワイプ表示用）を同期的にインサート
+  const firstChunk = specimensPool.slice(0, 20);
+  const initialStatements = firstChunk.map(item => {
+    const dnaStr = JSON.stringify(item.dna);
+    return env.DB.prepare(
+      "INSERT INTO specimens (id, thread_id, generation, dna, likes_count, nopes_count, is_honeypot, status) VALUES (?, ?, 0, ?, 0, 0, ?, 'active')"
+    ).bind(item.id, threadId, dnaStr, item.isHoneypot);
+  });
+  await env.DB.batch(initialStatements);
+
+  // 残りの80件を非同期インサートするPromiseタスク
+  const asyncInsertTask = (async () => {
+    const remainingPool = specimensPool.slice(20);
+    const CHUNK_SIZE = 80;
+    for (let i = 0; i < remainingPool.length; i += CHUNK_SIZE) {
+      const chunk = remainingPool.slice(i, i + CHUNK_SIZE);
+      const chunkStatements = chunk.map(item => {
+        const dnaStr = JSON.stringify(item.dna);
+        return env.DB.prepare(
+          "INSERT INTO specimens (id, thread_id, generation, dna, likes_count, nopes_count, is_honeypot, status) VALUES (?, ?, 0, ?, 0, 0, ?, 'active')"
+        ).bind(item.id, threadId, dnaStr, item.isHoneypot);
+      });
+      await env.DB.batch(chunkStatements);
+    }
+  })();
+
+  // バックグラウンドで残りをインサート
+  ctx.waitUntil(asyncInsertTask);
 
   return new Response(JSON.stringify({ success: true, thread: { id: threadId, name, type, generation: 0 } }), {
     headers: { 'Content-Type': 'application/json', ...corsHeaders(request) }
   });
 }
 
+function getRequiredSwipeForHoneypot(cardId: string): 'like' | 'nope' {
+  let hash = 0;
+  for (let i = 0; i < cardId.length; i++) {
+    hash = cardId.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return (hash % 2 === 0) ? 'like' : 'nope';
+}
+
 // GET /api/cards?thread_id=...
-async function handleGetCards(request: Request, env: Env, session: { session_id: string }): Promise<Response> {
+async function handleGetCards(
+  request: Request,
+  env: Env,
+  session: { session_id: string },
+  ctx: ExecutionContext
+): Promise<Response> {
   const url = new URL(request.url);
-  const threadId = url.searchParams.get('thread_id');
+  const threadId = url.searchParams.get('thread_id') || url.searchParams.get('threadId');
   const sessionId = session.session_id;
 
   if (!threadId || !sessionId) {
@@ -711,7 +804,13 @@ async function handleGetCards(request: Request, env: Env, session: { session_id:
     } else if (results.length === 0) {
       console.log(`Auto-evolving thread ${threadId} because generation ${currentGen} is fully assigned.`);
       const lastSwipedCardId = url.searchParams.get('last_swiped_card_id') || (excludeIds.length > 0 ? excludeIds[excludeIds.length - 1] : null);
-      const res = await evolveThread(env.DB, threadId, thread.type, lastSwipedCardId);
+      const res = await evolveThread(
+        env.DB,
+        threadId,
+        thread.type,
+        lastSwipedCardId,
+        (promise) => ctx.waitUntil(promise)
+      );
       activeGen = res.nextGen;
       await claimCardsForSession(env.DB, threadId, activeGen, sessionId, 20, excludeIds);
       results = await fetchAssignedCardsForSession(env.DB, threadId, activeGen, sessionId, excludeIds);
@@ -719,12 +818,16 @@ async function handleGetCards(request: Request, env: Env, session: { session_id:
   }
 
   // Parse DNA string back to object
-  const cards = results.map(row => ({
-    id: row.id,
-    generation: row.generation,
-    dna: JSON.parse(row.dna),
-    is_honeypot: row.is_honeypot === 1
-  }));
+  const cards = results.map(row => {
+    const isHoneypot = row.is_honeypot === 1;
+    return {
+      id: row.id,
+      generation: row.generation,
+      dna: JSON.parse(row.dna),
+      is_honeypot: isHoneypot,
+      required_swipe: isHoneypot ? getRequiredSwipeForHoneypot(row.id) : undefined
+    };
+  });
 
   // Fetch session statistics if session ID is provided
   let userStats = { dailySwipes: 0, botFlag: 0 };
@@ -862,6 +965,117 @@ async function handlePostSwipe(request: Request, env: Env, session: { session_id
     headers: { 'Content-Type': 'application/json', ...corsHeaders(request) }
   });
 }
+
+// POST /api/swipe/bulk
+interface BulkSwipeItem {
+  card_id: string;
+  swipe: 'like' | 'nope';
+}
+
+async function handlePostSwipeBulk(
+  request: Request,
+  env: Env,
+  session: { session_id: string }
+): Promise<Response> {
+  const body = await request.json<{ thread_id?: string; swipes?: BulkSwipeItem[]; turnstile_token?: string }>().catch(() => null);
+  if (!body) {
+    return new Response(JSON.stringify({ error: 'Invalid body' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(request) }
+    });
+  }
+
+  const { thread_id, swipes, turnstile_token } = body;
+  const sessionId = session.session_id;
+
+  if (!thread_id || !swipes || !Array.isArray(swipes) || swipes.length === 0) {
+    return new Response(JSON.stringify({ error: 'Missing required parameters' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(request) }
+    });
+  }
+
+  // 1. Turnstile Token Verification (Optional)
+  const turnstileSecret = env.TURNSTILE_SECRET;
+  if (turnstileSecret && turnstile_token) {
+    const clientIP = request.headers.get('CF-Connecting-IP') || '';
+    const formData = new FormData();
+    formData.append('secret', turnstileSecret);
+    formData.append('response', turnstile_token);
+    formData.append('remoteip', clientIP);
+
+    const verifyResponse = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      body: formData
+    });
+
+    const verifyResult = await verifyResponse.json() as { success: boolean };
+    if (!verifyResult.success) {
+      return new Response(JSON.stringify({ error: 'Turnstile verification failed' }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders(request) }
+      });
+    }
+  }
+
+  // 2. Fetch User Session
+  const nowStr = new Date().toISOString();
+  let userSession = await env.DB.prepare(
+    "SELECT * FROM user_sessions WHERE session_id = ?"
+  ).bind(sessionId).first<{ session_id: string; daily_swipes: number; bot_flag: number; last_swipe_at: string }>();
+
+  if (!userSession) {
+    await env.DB.prepare(
+      "INSERT INTO user_sessions (session_id, daily_swipes, bot_flag, last_swipe_at) VALUES (?, ?, 0, ?)"
+    ).bind(sessionId, swipes.length, nowStr).run();
+    userSession = { session_id: sessionId, daily_swipes: swipes.length, bot_flag: 0, last_swipe_at: nowStr };
+  } else {
+    // Check rate limits
+    const lastSwipeTime = new Date(userSession.last_swipe_at).getTime();
+    const nowTime = Date.now();
+    if (nowTime - lastSwipeTime < 5000 && userSession.daily_swipes % 120 === 0) {
+      return new Response(JSON.stringify({ error: 'Rate limit exceeded. Please wait.' }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders(request) }
+      });
+    }
+
+    // Update session daily count and timestamp
+    await env.DB.prepare(
+      "UPDATE user_sessions SET daily_swipes = daily_swipes + ?, last_swipe_at = ? WHERE session_id = ?"
+    ).bind(swipes.length, nowStr, sessionId).run();
+  }
+
+  // 3. Shadow Ban Check
+  if (userSession.bot_flag >= 3) {
+    return new Response(JSON.stringify({ success: true, message: 'Processed' }), {
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(request) }
+    });
+  }
+
+  // 4. Batch update vote counts (skip honeypot assets)
+  const statements = [];
+  for (const item of swipes) {
+    if (item.swipe === 'like') {
+      statements.push(
+        env.DB.prepare("UPDATE specimens SET likes_count = likes_count + 1 WHERE id = ? AND is_honeypot = 0").bind(item.card_id)
+      );
+    } else {
+      statements.push(
+        env.DB.prepare("UPDATE specimens SET nopes_count = nopes_count + 1 WHERE id = ? AND is_honeypot = 0").bind(item.card_id)
+      );
+    }
+  }
+
+  if (statements.length > 0) {
+    await env.DB.batch(statements);
+  }
+
+  return new Response(JSON.stringify({ success: true }), {
+    headers: { 'Content-Type': 'application/json', ...corsHeaders(request) }
+  });
+}
+
 
 // POST /api/admin/run-ga
 async function handleAdminRunGA(request: Request, env: Env): Promise<Response> {
@@ -1024,6 +1238,66 @@ async function handlePostDeleteThread(request: Request, env: Env, session: { ses
   });
 }
 
+// POST /api/threads/rename
+async function handlePostRenameThread(
+  request: Request,
+  env: Env,
+  session: { session_id: string }
+): Promise<Response> {
+  const body = await request.json<{ thread_id?: string; name?: string }>().catch(() => null);
+  if (!body) {
+    return new Response(JSON.stringify({ error: 'Invalid body' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(request) }
+    });
+  }
+
+  const { thread_id, name } = body;
+  const sessionId = session.session_id;
+
+  if (!thread_id || !name || !name.trim()) {
+    return new Response(JSON.stringify({ error: 'Missing required parameters' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(request) }
+    });
+  }
+
+  if (containsInappropriateContent(name)) {
+    return new Response(JSON.stringify({ error: 'Inappropriate content detected in thread name' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(request) }
+    });
+  }
+
+  // Fetch thread to check creator
+  const thread = await env.DB.prepare(
+    "SELECT creator_session_id FROM threads WHERE id = ?"
+  ).bind(thread_id).first<{ creator_session_id: string | null }>();
+
+  if (!thread) {
+    return new Response(JSON.stringify({ error: 'Thread not found' }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(request) }
+    });
+  }
+
+  if (!thread.creator_session_id || thread.creator_session_id !== sessionId) {
+    return new Response(JSON.stringify({ error: 'Unauthorized. Only the creator can rename this thread.' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(request) }
+    });
+  }
+
+  // Update thread name
+  await env.DB.prepare(
+    "UPDATE threads SET name = ? WHERE id = ?"
+  ).bind(name.trim(), thread_id).run();
+
+  return new Response(JSON.stringify({ success: true }), {
+    headers: { 'Content-Type': 'application/json', ...corsHeaders(request) }
+  });
+}
+
 // POST /api/report
 async function handlePostReport(request: Request, env: Env, session: { session_id: string }): Promise<Response> {
   const sessionId = session.session_id;
@@ -1063,6 +1337,9 @@ async function handlePostStaminaSync(
     lastRecoveryTime?: number;
     souls?: number;
     isAdFree?: boolean;
+    outs?: number;
+    lastOutRecoveryTime?: number;
+    swipesSinceLastOutRecovery?: number;
   }>().catch(() => null);
 
   if (!clientState) {
@@ -1090,7 +1367,10 @@ async function handlePostStaminaSync(
       lifetime_swipes: clientState.lifetimeSwipes ?? 0,
       last_recovery_time: clientState.lastRecoveryTime ?? now,
       souls: clientState.souls ?? 0,
-      is_ad_free: clientState.isAdFree ? 1 : 0
+      is_ad_free: clientState.isAdFree ? 1 : 0,
+      outs: clientState.outs ?? 0,
+      last_out_recovery_time: clientState.lastOutRecoveryTime ?? 0,
+      swipes_since_last_out_recovery: clientState.swipesSinceLastOutRecovery ?? 0
     };
   }
 
@@ -1100,7 +1380,10 @@ async function handlePostStaminaSync(
     lifetimeSwipes: clientState.lifetimeSwipes ?? 0,
     lastRecoveryTime: clientState.lastRecoveryTime ?? Date.now(),
     souls: clientState.souls ?? 0,
-    isAdFree: clientState.isAdFree ?? false
+    isAdFree: clientState.isAdFree ?? false,
+    outs: clientState.outs ?? 0,
+    lastOutRecoveryTime: clientState.lastOutRecoveryTime ?? 0,
+    swipesSinceLastOutRecovery: clientState.swipesSinceLastOutRecovery ?? 0
   };
 
   const serverParsed: GameState = {
@@ -1109,7 +1392,10 @@ async function handlePostStaminaSync(
     lifetimeSwipes: serverRow.lifetime_swipes ?? 0,
     lastRecoveryTime: serverRow.last_recovery_time ?? Date.now(),
     souls: serverRow.souls ?? 0,
-    isAdFree: (serverRow.is_ad_free ?? 0) === 1
+    isAdFree: (serverRow.is_ad_free ?? 0) === 1,
+    outs: serverRow.outs ?? 0,
+    lastOutRecoveryTime: serverRow.last_out_recovery_time ?? 0,
+    swipesSinceLastOutRecovery: serverRow.swipes_since_last_out_recovery ?? 0
   };
 
   // 2. Merge states using standard conflict resolution
@@ -1123,7 +1409,10 @@ async function handlePostStaminaSync(
          lifetime_swipes = ?,
          last_recovery_time = ?,
          souls = ?,
-         is_ad_free = ?
+         is_ad_free = ?,
+         outs = ?,
+         last_out_recovery_time = ?,
+         swipes_since_last_out_recovery = ?
      WHERE session_id = ?`
   ).bind(
     merged.stamina,
@@ -1132,6 +1421,9 @@ async function handlePostStaminaSync(
     merged.lastRecoveryTime,
     merged.souls,
     merged.isAdFree ? 1 : 0,
+    merged.outs ?? 0,
+    merged.lastOutRecoveryTime ?? 0,
+    merged.swipesSinceLastOutRecovery ?? 0,
     sessionId
   ).run();
 
@@ -1139,3 +1431,261 @@ async function handlePostStaminaSync(
     headers: { 'Content-Type': 'application/json', ...corsHeaders(request) }
   });
 }
+
+const EXACT_BAD_WORDS = new Set([
+  "bj", "isil", "kz", "ss", "sa", "dp", "kkk", "9/11", "acab", "pd", "zob"
+]);
+
+const SUBSTRING_BAD_WORDS = [
+  // 英語・その他外国語
+  "analplug", "bullshit", "clit", "clitoris", "cock", "cocksucker", "coon", "cum", "cumshot",
+  "cunt", "damn", "dick", "dickhead", "dike", "dildo", "dyke", "f.u.c.k.", "fuck", "fag", "faggot",
+  "fags", "fascist", "fcuk", "fucker", "fuct", "fuk", "fvck", "gobshite", "goddamn", "gypo",
+  "homo", "hore", "incest", "jesussucks", "jism", "jizz", "jizzum", "kill", "killer", "kunt",
+  "lesbo", "masturbate", "molest", "paedo", "paedofile", "paedophile", "pecker", "pedo",
+  "pedofile", "pedophile", "penis", "phuk", "poof", "poon", "porn", "pussy", "rape", "raped",
+  "rapes", "rapist", "scrotum", "shiz", "slag", "slut", "spastic", "spaz", "sperm", "spick",
+  "spik", "spunk", "suicide", "tits", "twat", "vag", "vagina", "vulva", "wank", "wanker",
+  "whor", "whore", "bastard", "blowjob", "bitch", "nazi", "piss", "ass", "anal",
+  "asshole", "shit", "nonce", "slave", "analsex", "isis", "nigga", "towelhead", "cocaine",
+  "cokehead", "covid", "sau", "hitler", "wog", "paki", "mong", "kike", "yid", "gypsy",
+  "kaffir", "negro", "nigger", "weed", "ejaculate", "handjob", "cannabis", "ganja", "chink",
+  "gook", "hardon", "jap", "japs",
+  "abruti", "abrutie", "adhd", "affanculo", "arsch", "arschloch", "bagascia", "baise", "baisé",
+  "baiser", "baldracca", "batard", "battona", "bite", "bocchinara", "bocchinaro", "bollera",
+  "bougnoul", "branleur", "burne", "cabron", "cabrón", "cabrona", "cabronazo", "capulla",
+  "capullo", "cazzi", "cazzo", "chiavare", "chichi", "chier", "chocho", "cocu", "coglione",
+  "cojon", "cojón", "cojones", "comepollas", "con", "connard", "connasse", "conne", "cono",
+  "coño", "couille", "couillon", "couillonne", "crevard", "cul", "culattone", "culo",
+  "dio bestia", "dio cane", "dio porco", "drecksack", "drecksau", "encule", "enculé", "enculee",
+  "enculée", "enculer", "enfoire", "enfoiré", "fanculo", "fica", "ficken", "fickfresse", "figa",
+  "fion", "follar", "follen", "fottere", "fotze", "foutre", "frocio", "furcia", "gilipollas",
+  "hackfresse", "hijaputa", "hijo puta", "hijoputa", "holocaust", "hostia", "hurensohn",
+  "inculare", "joder", "jodete", "jódetE", "joputa", "judensau", "kacke", "kanacke",
+  "mamada", "mamon", "mamón", "mamona", "marica", "maricon", "maricón", "maricona", "mariconazo",
+  "merde", "mignotta", "minchia", "missgeburt", "negre", "nègre", "negresse", "négresse",
+  "nique", "niquer", "nutte", "ojete", "ostia", "padophiler", "pädophiler", "pajillero",
+  "partouze", "pede", "pédé", "pendon", "pendón", "petasse", "pétasse", "picha", "pine",
+  "pisser", "polla", "pollon", "pollón", "polvo", "pompinara", "pompino", "porco dio",
+  "potorro", "pouffe", "pouffiasse", "puta", "putain", "pute", "puto", "puton", "putón",
+  "puttana", "queer", "ricchione", "rottinculo", "salaud", "salop", "salopard", "salope",
+  "sborra", "scheiße", "scheiße", "schlampe", "schwanz", "schwuchtel", "segaiolo", "sieg heil",
+  "sodomie", "spasti", "stricher", "sucer", "tapette", "tare", "taré", "tortillera", "troia",
+  "troietta", "troiona", "troione", "vaffanculo", "vagin", "vollidiot", "wichser", "zoccola",
+  "zorron", "zorrón",
+
+  // 日本語
+  "いらまちお", "おまんこ", "せいえき", "ファック", "きえて", "きえろ", "きちがい", "きんたま",
+  "くたばれ", "くりとりす", "コカイン", "56す", "ころすぞ", "ころすよ", "ぶっころす", "ごうかん",
+  "ザーメン", "ざっこ", "しこしこ", "じさつ", "しつこい", "4ね", "タヒね", "しねば", "しねよ",
+  "しょうべん", "しんで", "しんでよ", "しんでくれ", "セックス", "ぜつりん", "セフレ", "だいべん",
+  "ダウンしょう", "だまれ", "ちしょう", "ちしょー", "ちんかす", "ちんちん", "ちんぼ", "ちんぽ",
+  "ちんぽこ", "でかちん", "ふぇらちお", "へたくそ", "ぺにす", "ヘロイン", "ぽこちん", "まんこ",
+  "まんかす", "メンヘラ", "やくたたず", "よわい", "かよわい", "よわすぎ", "リストカット", "レイプ",
+  "かっす", "まじきち", "リスカ", "おなる", "せんぱん", "ちんこ", "ざこ", "ヒトラー", "ぱいぱん",
+  "くろんぼ", "めくら", "おなにー", "おめこ", "まんげ", "ガイジ", "けつあな", "あべしね", "しね",
+  "あべやめろ", "やめろ", "だっぷん", "しねくそ", "ごみかす", "ごみくず", "しゃせい", "ぼっき",
+  "ちんげ", "ちゃんころ", "ころす", "あほ", "ばか", "おっぱい", "チョッパリ", "しっこ", "おしっこ",
+  "うんこ", "うんち", "ろりこん", "あなる", "やりまん",
+  "あいえき", "いぬごろし", "いんぱい", "いんもう", "かたわ", "けとう", "さんごくじん", "しなじん",
+  "ちんば", "つんぼ", "どかた", "とさつ", "どもり", "にぐろ", "にんぴにん", "びっこ", "ひにん",
+  "ふぇら", "ぶらく", "やらせろ", "りょうじょく",
+  
+  // 日本語（漢字表記バリエーション）
+  "愛液", "犬殺し", "淫売", "陰毛", "強姦", "殺す", "死ね", "精液", "支那人", "屠殺",
+  "避妊", "陵辱", "自殺", "消えろ", "消えて", "くたばれ", "馬鹿", "阿呆", "糞", "大便",
+  "小便", "勃起", "射精", "脱糞", "近親相姦", "売春", "買春", "自傷", "殺人", "死体", "死亡", "即死", "殺害",
+
+  // 韓国語
+  "강간", "개새끼", "개지랄", "걸레같은년", "걸레년", "귀두", "성감대", "성폭행", "니미랄",
+  "딸딸이", "미친년", "미친놈", "병신", "보지", "부랄", "불알", "빠구리", "빠굴이", "빨아",
+  "사까시", "성관계", "성행위", "섹스", "시팔년", "시팔놈", "쌍넘", "쌍년", "쌍놈", "쌍뇬",
+  "씨발", "씨발넘", "씨발년", "씨발놈", "씨발뇬", "씹새끼", "염병", "오르", "왕자지", "유두",
+  "자지", "잠지", "정액", "창녀", "콘돔", "클리토리스", "페니스", "핥아", "후장"
+];
+
+function katakanaToHiragana(src: string): string {
+  return src.replace(/[\u30a1-\u30f6]/g, (match) => {
+    const chr = match.charCodeAt(0) - 0x60;
+    return String.fromCharCode(chr);
+  });
+}
+
+const NORMALIZED_BAD_WORDS = SUBSTRING_BAD_WORDS.map(w => katakanaToHiragana(w.toLowerCase()));
+
+function containsInappropriateContent(text: string): boolean {
+  if (!text) return false;
+
+  const lowerText = katakanaToHiragana(text.trim().toLowerCase());
+
+  // 1. 完全一致・単独単語チェック (BJ, SS などの誤判定防止のため単体のみNG)
+  const words = lowerText.split(/[\s\-_.,/]+/);
+  for (const w of words) {
+    if (EXACT_BAD_WORDS.has(w)) {
+      return true;
+    }
+  }
+
+  // 2. 部分一致チェック (スペースや記号を挟むすり抜け対策のため除去して判定)
+  const normalized = lowerText.replace(/[\s\-_.,/*~()]+/g, '');
+
+  for (const badWord of NORMALIZED_BAD_WORDS) {
+    if (normalized.includes(badWord)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+async function handlePostCreateCheckoutSession(
+  request: Request,
+  env: Env,
+  session: { session_id: string }
+): Promise<Response> {
+  const body = await request.json<{ item?: 'souls_500' | 'souls_1500' | 'souls_4000' }>().catch(() => ({ item: undefined }));
+  const { item } = body;
+  const sessionId = session.session_id;
+
+  if (!item || (item !== 'souls_500' && item !== 'souls_1500' && item !== 'souls_4000')) {
+    return new Response(JSON.stringify({ error: 'Invalid purchase item' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(request) }
+    });
+  }
+
+  const stripeSecret = env.STRIPE_SECRET_KEY;
+  if (!stripeSecret) {
+    return new Response(JSON.stringify({ error: 'Stripe configuration missing on server' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(request) }
+    });
+  }
+
+  const stripe = new Stripe(stripeSecret, {
+    apiVersion: '2023-10-16',
+    httpClient: Stripe.createFetchHttpClient(),
+  });
+
+  const requestUrl = new URL(request.url);
+  const successUrl = `${requestUrl.origin}/?payment=success`;
+  const cancelUrl = `${requestUrl.origin}/?payment=cancel`;
+
+  let name = '';
+  let amount = 0;
+  if (item === 'souls_500') {
+    name = '500 Souls (水晶)';
+    amount = 199; // $1.99 USD
+  } else if (item === 'souls_1500') {
+    name = '1,500 Souls (水晶)';
+    amount = 499; // $4.99 USD
+  } else if (item === 'souls_4000') {
+    name = '4,000 Souls (水晶)';
+    amount = 999; // $9.99 USD
+  }
+
+  try {
+    const checkoutSession = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price_data: {
+            currency: 'usd',
+            product_data: {
+              name: name,
+            },
+            unit_amount: amount,
+          },
+          quantity: 1,
+        },
+      ],
+      mode: 'payment',
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+      metadata: {
+        session_id: sessionId,
+        purchase_item: item,
+      },
+    });
+
+    return new Response(JSON.stringify({ url: checkoutSession.url }), {
+      headers: {
+        'Content-Type': 'application/json',
+        ...corsHeaders(request),
+      },
+    });
+  } catch (err: any) {
+    console.error('Failed to create Stripe checkout session:', err);
+    return new Response(JSON.stringify({ error: err.message || 'Stripe error' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(request) }
+    });
+  }
+}
+
+async function handlePostStripeWebhook(request: Request, env: Env): Promise<Response> {
+  const stripeSecret = env.STRIPE_SECRET_KEY;
+  const webhookSecret = env.STRIPE_WEBHOOK_SECRET;
+
+  if (!stripeSecret || !webhookSecret) {
+    return new Response('Stripe secret or webhook secret missing', { status: 500 });
+  }
+
+  const stripe = new Stripe(stripeSecret, {
+    apiVersion: '2023-10-16',
+    httpClient: Stripe.createFetchHttpClient(),
+  });
+
+  const signature = request.headers.get('stripe-signature');
+  if (!signature) {
+    return new Response('Missing stripe-signature header', { status: 400 });
+  }
+
+  const bodyText = await request.text();
+
+  let event: Stripe.Event;
+  try {
+    event = await stripe.webhooks.constructEventAsync(bodyText, signature, webhookSecret);
+  } catch (err: any) {
+    console.error('Webhook signature verification failed:', err.message);
+    return new Response(`Webhook Error: ${err.message}`, { status: 400 });
+  }
+
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object as Stripe.Checkout.Session;
+    const metadata = session.metadata;
+
+    if (metadata && metadata.session_id && metadata.purchase_item) {
+      const sessionId = metadata.session_id;
+      const purchaseItem = metadata.purchase_item;
+      console.log(`Processing completed payment for session ${sessionId}, item: ${purchaseItem}`);
+
+      try {
+        if (purchaseItem === 'souls_500') {
+          await env.DB.prepare(
+            "UPDATE user_sessions SET souls = souls + 500 WHERE session_id = ?"
+          ).bind(sessionId).run();
+          console.log(`Successfully granted 500 souls to session ${sessionId}`);
+        } else if (purchaseItem === 'souls_1500') {
+          await env.DB.prepare(
+            "UPDATE user_sessions SET souls = souls + 1500 WHERE session_id = ?"
+          ).bind(sessionId).run();
+          console.log(`Successfully granted 1500 souls to session ${sessionId}`);
+        } else if (purchaseItem === 'souls_4000') {
+          await env.DB.prepare(
+            "UPDATE user_sessions SET souls = souls + 4000 WHERE session_id = ?"
+          ).bind(sessionId).run();
+          console.log(`Successfully granted 4000 souls to session ${sessionId}`);
+        }
+      } catch (dbErr: any) {
+        console.error('Failed to update user session after payment success:', dbErr);
+        return new Response('Database update failed', { status: 500 });
+      }
+    }
+  }
+
+  return new Response(JSON.stringify({ received: true }), {
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
