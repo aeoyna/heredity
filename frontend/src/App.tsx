@@ -1,20 +1,28 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Activity, Sparkles, RefreshCw, ShieldAlert, Plus, X, Star, Trash2, ShoppingCart, List, Diamond, Download, GitFork, Dna, Copy } from 'lucide-react';
+import { Activity, Sparkles, RefreshCw, ShieldAlert, Plus, X, Star, Trash2, ShoppingCart, List, Diamond, Download, GitFork, Dna, Copy, Pencil, Battery, ArrowUpCircle, Search, Volume2, VolumeX } from 'lucide-react';
 import type { LineDNA, MosaicDNA } from '../../backend/src/shared-types';
 import { SwipeCard } from './components/SwipeCard';
 import { LineCanvas } from './components/LineCanvas';
 import { MosaicCanvas } from './components/MosaicCanvas';
 import { NoiseCard } from './components/NoiseCard';
-import { 
+import { AdBanner } from './components/AdBanner';
+import { initGA, logPageView, logEvent } from './utils/analytics';
+import {
   playClick, 
   playSwipeLike, 
   playSwipeNope, 
   playEvolve, 
   playPurchase, 
   playCreate, 
-  playError 
+  playError,
+  setSoundEnabled,
+  getSoundEnabled
 } from './utils/sound';
+
+const BlueFire = () => (
+  <span className="inline-block mr-0.5" style={{ filter: 'hue-rotate(195deg) saturate(1.6) brightness(1.1)', transform: 'translateY(-1px)' }}>🔥</span>
+);
 
 // Configure worker backend API base url
 const API_BASE = import.meta.env.VITE_API_BASE || 
@@ -32,9 +40,12 @@ const calculateStaminaChecksum = (
   lifetimeSwipes: number,
   lastRecovery: number,
   souls: number,
-  isAdFree: boolean
+  isAdFree: boolean,
+  outs = 0,
+  lastOutRecoveryTime = 0,
+  swipesSinceLastOutRecovery = 0
 ): string => {
-  const payload = `${stamina}:${maxStamina}:${lifetimeSwipes}:${lastRecovery}:${souls}:${isAdFree ? 1 : 0}:${SIGNATURE_SALT}`;
+  const payload = `${stamina}:${maxStamina}:${lifetimeSwipes}:${lastRecovery}:${souls}:${isAdFree ? 1 : 0}:${outs}:${lastOutRecoveryTime}:${swipesSinceLastOutRecovery}:${SIGNATURE_SALT}`;
   let hash = 5381;
   for (let i = 0; i < payload.length; i++) {
     hash = ((hash << 5) + hash) + payload.charCodeAt(i);
@@ -49,6 +60,9 @@ const serializeAndSign = (data: {
   lastRecoveryTime: number;
   souls: number;
   isAdFree: boolean;
+  outs: number;
+  lastOutRecoveryTime: number;
+  swipesSinceLastOutRecovery: number;
 }): string => {
   const checksum = calculateStaminaChecksum(
     data.stamina,
@@ -56,7 +70,10 @@ const serializeAndSign = (data: {
     data.lifetimeSwipes,
     data.lastRecoveryTime,
     data.souls,
-    data.isAdFree
+    data.isAdFree,
+    data.outs,
+    data.lastOutRecoveryTime,
+    data.swipesSinceLastOutRecovery
   );
   
   const envelope = { ...data, checksum };
@@ -79,6 +96,9 @@ const verifyAndDeserialize = (
   lastRecoveryTime: number;
   souls: number;
   isAdFree: boolean;
+  outs: number;
+  lastOutRecoveryTime: number;
+  swipesSinceLastOutRecovery: number;
 } | null => {
   try {
     const rawXored = atob(encoded);
@@ -89,6 +109,10 @@ const verifyAndDeserialize = (
     
     const parsed = JSON.parse(decoded);
     const isAdFree = typeof parsed.isAdFree === 'boolean' ? parsed.isAdFree : false;
+    const outs = typeof parsed.outs === 'number' ? parsed.outs : 0;
+    const lastOutRecoveryTime = typeof parsed.lastOutRecoveryTime === 'number' ? parsed.lastOutRecoveryTime : 0;
+    const swipesSinceLastOutRecovery = typeof parsed.swipesSinceLastOutRecovery === 'number' ? parsed.swipesSinceLastOutRecovery : 0;
+
     if (
       typeof parsed.stamina !== 'number' ||
       typeof parsed.maxStamina !== 'number' ||
@@ -106,12 +130,27 @@ const verifyAndDeserialize = (
       parsed.lifetimeSwipes,
       parsed.lastRecoveryTime,
       parsed.souls,
-      isAdFree
+      isAdFree,
+      outs,
+      lastOutRecoveryTime,
+      swipesSinceLastOutRecovery
     );
     
     if (calculatedChecksum !== parsed.checksum) {
-      console.warn('Stamina integrity verification failed! Signature mismatch.');
-      return null;
+      // Legacy checksum check for backward compatibility
+      const legacyChecksum = calculateStaminaChecksum(
+        parsed.stamina,
+        parsed.maxStamina,
+        parsed.lifetimeSwipes,
+        parsed.lastRecoveryTime,
+        parsed.souls,
+        isAdFree,
+        0, 0, 0
+      );
+      if (legacyChecksum !== parsed.checksum) {
+        console.warn('Stamina integrity verification failed! Signature mismatch.');
+        return null;
+      }
     }
     
     return {
@@ -120,10 +159,12 @@ const verifyAndDeserialize = (
       lifetimeSwipes: parsed.lifetimeSwipes,
       lastRecoveryTime: parsed.lastRecoveryTime,
       souls: parsed.souls,
-      isAdFree
+      isAdFree,
+      outs,
+      lastOutRecoveryTime,
+      swipesSinceLastOutRecovery
     };
   } catch (e) {
-    // If it's invalid base64 (e.g. legacy plain JSON), catch it cleanly
     return null;
   }
 };
@@ -133,6 +174,7 @@ interface CardData {
   generation: number;
   dna: LineDNA | MosaicDNA;
   is_honeypot?: boolean;
+  required_swipe?: 'like' | 'nope';
 }
 
 interface Thread {
@@ -184,6 +226,10 @@ export default function App() {
   const [view, setView] = useState<'swipe' | 'threads' | 'shop'>('swipe');
   // Explorer Tab State ('all' for all threads, 'saved' for bookmarked ones)
   const [threadsTab, setThreadsTab] = useState<'all' | 'saved'>('all');
+
+  // Search State
+  const [threadSearchQuery, setThreadSearchQuery] = useState<string>('');
+  const [isSearchActive, setIsSearchActive] = useState<boolean>(false);
   const [savedThreadIds, setSavedThreadIds] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem('project_x_saved_thread_ids');
@@ -198,6 +244,42 @@ export default function App() {
   const [showDetailModal, setShowDetailModal] = useState<boolean>(false);
   const [savedSubTab, setSavedSubTab] = useState<'threads' | 'cards'>('threads');
 
+  // Commercial Modal Language State
+  const [commercialLang, setCommercialLang] = useState<'ja' | 'en'>('ja');
+
+  // Global/Menu Language State
+  const [lang, setLang] = useState<'ja' | 'en'>(() => {
+    try {
+      const saved = localStorage.getItem('project_x_lang');
+      return saved === 'en' ? 'en' : 'ja';
+    } catch (e) {
+      return 'ja';
+    }
+  });
+
+  const changeLang = (newLang: 'ja' | 'en') => {
+    setLang(newLang);
+    setCommercialLang(newLang);
+    try {
+      localStorage.setItem('project_x_lang', newLang);
+    } catch (e) {}
+  };
+
+  // Sound Muted/Enabled State
+  const [soundEnabledState, setSoundEnabledState] = useState<boolean>(() => {
+    return getSoundEnabled();
+  });
+
+  const toggleSound = () => {
+    const newVal = !soundEnabledState;
+    setSoundEnabledState(newVal);
+    setSoundEnabled(newVal);
+    if (newVal) {
+      setTimeout(() => {
+        playClick();
+      }, 50);
+    }
+  };
   // Fork inline thread creation name
   const [forkThreadName, setForkThreadName] = useState<string>('');
   const [isForking, setIsForking] = useState<boolean>(false);
@@ -252,6 +334,9 @@ export default function App() {
     lastRecoveryTime: number;
     souls: number;
     isAdFree: boolean;
+    outs: number;
+    lastOutRecoveryTime: number;
+    swipesSinceLastOutRecovery: number;
   }>(() => {
     try {
       const saved = localStorage.getItem('project_x_stamina_data');
@@ -272,7 +357,10 @@ export default function App() {
       lifetimeSwipes: 0,
       lastRecoveryTime: Date.now(),
       souls: 0,
-      isAdFree: false
+      isAdFree: false,
+      outs: 0,
+      lastOutRecoveryTime: 0,
+      swipesSinceLastOutRecovery: 0
     };
   });
 
@@ -296,7 +384,10 @@ export default function App() {
           lifetimeSwipes: data.lifetimeSwipes,
           lastRecoveryTime: data.lastRecoveryTime,
           souls: data.souls,
-          isAdFree: data.isAdFree
+          isAdFree: data.isAdFree,
+          outs: data.outs,
+          lastOutRecoveryTime: data.lastOutRecoveryTime,
+          swipesSinceLastOutRecovery: data.swipesSinceLastOutRecovery
         })
       });
       if (res.ok) {
@@ -309,7 +400,10 @@ export default function App() {
             lifetimeSwipes: merged.lifetimeSwipes,
             lastRecoveryTime: merged.lastRecoveryTime,
             souls: merged.souls,
-            isAdFree: merged.isAdFree
+            isAdFree: merged.isAdFree,
+            outs: merged.outs ?? 0,
+            lastOutRecoveryTime: merged.lastOutRecoveryTime ?? 0,
+            swipesSinceLastOutRecovery: merged.swipesSinceLastOutRecovery ?? 0
           };
           localStorage.setItem('project_x_stamina_data', serializeAndSign(nextData));
           setStaminaData(nextData);
@@ -320,11 +414,58 @@ export default function App() {
     }
   };
 
+  // Countdown Timer Update Hook
+  const [nowTime, setNowTime] = useState<number>(Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNowTime(Date.now());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Time-based Out Recovery Hook (1 hour per out)
+  useEffect(() => {
+    if (staminaData.outs > 0 && staminaData.lastOutRecoveryTime > 0) {
+      const checkRecovery = () => {
+        const now = Date.now();
+        const elapsed = now - staminaData.lastOutRecoveryTime;
+        const OUT_RECOVERY_INTERVAL = 3600000; // 1 hour
+        
+        if (elapsed >= OUT_RECOVERY_INTERVAL) {
+          const outsToRecover = Math.floor(elapsed / OUT_RECOVERY_INTERVAL);
+          setStaminaData(prev => {
+            const nextOuts = Math.max(0, prev.outs - outsToRecover);
+            const nextTime = nextOuts === 0 ? 0 : prev.lastOutRecoveryTime + outsToRecover * OUT_RECOVERY_INTERVAL;
+            const nextData = {
+              ...prev,
+              outs: nextOuts,
+              lastOutRecoveryTime: nextTime,
+              swipesSinceLastOutRecovery: nextOuts === 0 ? 0 : prev.swipesSinceLastOutRecovery
+            };
+            localStorage.setItem('project_x_stamina_data', serializeAndSign(nextData));
+            syncStaminaWithServer(nextData);
+            setTimeout(() => {
+              showMsg(lang === 'en' ? `💚 Recovered ${outsToRecover} out(s) over time! (Current outs: ${nextOuts}/3)` : `💚 時間経過によりアウトが${outsToRecover}個回復しました！(現在のアウト数: ${nextOuts}/3)`, 'success');
+            }, 100);
+            return nextData;
+          });
+        }
+      };
+      
+      checkRecovery();
+      const timer = setInterval(checkRecovery, 5000); // check every 5 seconds
+      return () => clearInterval(timer);
+    }
+  }, [staminaData.outs, staminaData.lastOutRecoveryTime]);
 
   // Left Drawer & Legal/Report Modals
   const [showDrawer, setShowDrawer] = useState<boolean>(false);
+  const [pendingSwipes, setPendingSwipes] = useState<{ card_id: string; swipe: 'like' | 'nope' }[]>([]);
+  const [showChargeEffect, setShowChargeEffect] = useState<boolean>(false);
+  const [newGenNotification, setNewGenNotification] = useState<number | null>(null);
   const [showTermsModal, setShowTermsModal] = useState<boolean>(false);
   const [showPrivacyModal, setShowPrivacyModal] = useState<boolean>(false);
+  const [showCommercialModal, setShowCommercialModal] = useState<boolean>(false);
   const [showReportModal, setShowReportModal] = useState<boolean>(false);
   const [reportCategory, setReportCategory] = useState<string>('不具合');
   const [reportDesc, setReportDesc] = useState<string>('');
@@ -384,112 +525,194 @@ export default function App() {
     return () => clearInterval(interval);
   }, [staminaData.stamina, staminaData.maxStamina, staminaData.lastRecoveryTime]);
 
-  const handleSwipeStateUpdate = (isAd = false) => {
+  const handleSwipeStateUpdate = (isAd = false, isIncorrectHoneypot = false) => {
     setStaminaData(prev => {
       const nextSwipes = prev.lifetimeSwipes + 1;
-      const nextSouls = prev.souls + (isAd ? 3 : 1); // Reward +3 souls for swiping an ad!
-      const newStamina = isAd ? prev.stamina : Math.max(0, prev.stamina - 1);
       
+      // Determine souls gained
+      let nextSouls = prev.souls;
+      if (isIncorrectHoneypot) {
+        // No souls for incorrect ad swipe
+      } else if (isAd) {
+        nextSouls += 3;
+      } else {
+        nextSouls += 1;
+      }
+
+      const newStamina = (isAd || prev.maxStamina >= 9999) ? prev.stamina : Math.max(0, prev.stamina - 1);
+      
+      let nextOuts = prev.outs;
+      let nextLastOutRecoveryTime = prev.lastOutRecoveryTime;
+      let nextSwipesSinceLastOutRecovery = prev.swipesSinceLastOutRecovery;
+
+      if (isIncorrectHoneypot) {
+        nextOuts = Math.min(3, prev.outs + 1);
+        if (prev.outs === 0) {
+          nextLastOutRecoveryTime = Date.now();
+        }
+      } else if (!isAd) {
+        // Recover out with swipes
+        if (nextOuts > 0) {
+          nextSwipesSinceLastOutRecovery += 1;
+          if (nextSwipesSinceLastOutRecovery >= 100) {
+            nextOuts = Math.max(0, nextOuts - 1);
+            nextSwipesSinceLastOutRecovery = 0;
+            if (nextOuts === 0) {
+              nextLastOutRecoveryTime = 0;
+            } else {
+              nextLastOutRecoveryTime = Date.now();
+            }
+            setTimeout(() => {
+              showMsg(lang === 'en' ? `💚 100 swipes reached! Recovered 1 out! (Current outs: ${nextOuts}/3)` : `💚 100スワイプ達成！アウトが1個回復しました！(現在のアウト数: ${nextOuts}/3)`, 'success');
+            }, 100);
+          }
+        }
+      }
+
       const nextData = {
         ...prev,
         stamina: newStamina,
         lifetimeSwipes: nextSwipes,
         souls: nextSouls,
-        lastRecoveryTime: prev.stamina >= prev.maxStamina ? Date.now() : prev.lastRecoveryTime
+        lastRecoveryTime: prev.stamina >= prev.maxStamina ? Date.now() : prev.lastRecoveryTime,
+        outs: nextOuts,
+        lastOutRecoveryTime: nextLastOutRecoveryTime,
+        swipesSinceLastOutRecovery: nextSwipesSinceLastOutRecovery
       };
 
       localStorage.setItem('project_x_stamina_data', serializeAndSign(nextData));
-
-      // Sync with server on every 5th swipe
-      if (nextSwipes % 5 === 0) {
-        syncStaminaWithServer(nextData);
-      }
 
       return nextData;
     });
   };
 
-  const buyStaminaRecovery = () => {
+  const buyStaminaRecovery = (qty: number = 1) => {
     setStaminaData(prev => {
-      if (prev.souls < 300) {
-        showMsg('Soulが足りません！（必要: 300 Soul）', 'error');
+      const cost = 300 * qty;
+      if (prev.souls < cost) {
+        showMsg(lang === 'en' ? `Not enough Souls! (Required: ${cost} Souls)` : `Soulが足りません！（必要: ${cost} Soul）`, 'error');
         playError();
         return prev;
       }
       if (prev.stamina >= prev.maxStamina) {
-        showMsg('すでにスタミナは満タンです！', 'error');
+        showMsg(lang === 'en' ? 'Stamina is already full!' : 'すでにスタミナは満タンです！', 'error');
         playError();
         return prev;
       }
-      const newStamina = Math.min(prev.maxStamina, prev.stamina + 10);
+      const newStamina = Math.min(prev.maxStamina, prev.stamina + 10 * qty);
       const nextData = {
         ...prev,
         stamina: newStamina,
-        souls: prev.souls - 300
+        souls: prev.souls - cost
       };
       localStorage.setItem('project_x_stamina_data', serializeAndSign(nextData));
-      showMsg('スタミナを10回復しました！', 'success');
+      showMsg(lang === 'en' ? `Recovered ${10 * qty} stamina!` : `スタミナを${10 * qty}回復しました！`, 'success');
       playPurchase();
       syncStaminaWithServer(nextData);
+      logEvent('shop_purchase', { item_type: 'stamina_recovery', cost, quantity: qty });
       return nextData;
     });
   };
 
-  const buyMaxStaminaUpgrade = () => {
+  const buyMaxStaminaUpgrade = (qty: number = 1) => {
     setStaminaData(prev => {
-      if (prev.souls < 1000) {
-        showMsg('Soulが足りません！（必要: 1000 Soul）', 'error');
+      const cost = 1000 * qty;
+      if (prev.souls < cost) {
+        showMsg(lang === 'en' ? `Not enough Souls! (Required: ${cost} Souls)` : `Soulが足りません！（必要: ${cost} Soul）`, 'error');
         playError();
         return prev;
       }
-      const newMax = prev.maxStamina + 5;
-      const newStamina = prev.stamina + 5; // Also increase current stamina by 5
+      const newMax = prev.maxStamina + 5 * qty;
+      const newStamina = prev.stamina + 5 * qty; // Also increase current stamina by 5 * qty
       const nextData = {
         ...prev,
         stamina: newStamina,
         maxStamina: newMax,
-        souls: prev.souls - 1000
+        souls: prev.souls - cost
       };
       localStorage.setItem('project_x_stamina_data', serializeAndSign(nextData));
-      showMsg(`スタミナ上限が ${newMax} にアップしました！`, 'success');
+      showMsg(lang === 'en' ? `Max stamina increased to ${newMax}!` : `スタミナ上限が ${newMax} にアップしました！`, 'success');
       playPurchase();
       syncStaminaWithServer(nextData);
+      logEvent('shop_purchase', { item_type: 'max_stamina_upgrade', cost, quantity: qty });
       return nextData;
     });
   };
 
-  const buyAdFreePass = () => {
-    setStaminaData(prev => {
-      if (prev.souls < 150) {
-        showMsg('Soulが足りません！', 'error');
-        playError();
-        return prev;
+
+
+  const handleStripePurchase = async (item: 'souls_500' | 'souls_1500' | 'souls_4000') => {
+    if (sessionType === 'anonymous') {
+      showMsg(lang === 'en' ? 'You need to log in to make a purchase.' : '商品を購入するにはログインが必要です。', 'error');
+      setShowAuthModal(true);
+      playError();
+      return;
+    }
+    try {
+      showMsg(lang === 'en' ? 'Redirecting to checkout...' : '決済画面へ移動しています...', 'info');
+      const res = await fetch(`${API_BASE}/api/stripe/create-checkout-session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({ item })
+      });
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || (lang === 'en' ? 'Failed to create checkout session' : '決済セッションの作成に失敗しました'));
       }
-      if (prev.isAdFree) {
-        showMsg('すでに広告非表示パスを購入済みです！', 'error');
-        playError();
-        return prev;
+
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        throw new Error(lang === 'en' ? 'No checkout URL returned' : '決済URLが返されませんでした');
       }
-      const nextData = {
-        ...prev,
-        isAdFree: true,
-        souls: prev.souls - 150
-      };
-      localStorage.setItem('project_x_stamina_data', serializeAndSign(nextData));
-      showMsg('🎉 広告非表示パスを購入しました！広告が非表示になりました。', 'success');
-      playPurchase();
-      syncStaminaWithServer(nextData);
-      return nextData;
-    });
+    } catch (err: any) {
+      console.error('Stripe purchase error:', err);
+      showMsg(lang === 'en' ? `Payment error: ${err.message}` : `決済エラー: ${err.message}`, 'error');
+      playError();
+    }
   };
 
   const [sessionId, setSessionId] = useState<string>('');
+  const [staminaRecoveryQty, setStaminaRecoveryQty] = useState<number>(1);
+  const [maxStaminaUpgradeQty, setMaxStaminaUpgradeQty] = useState<number>(1);
+  const [showBuySoulsModal, setShowBuySoulsModal] = useState<boolean>(false);
   const [sessionType, setSessionType] = useState<'anonymous' | 'authenticated'>('anonymous');
   const [authStatus, setAuthStatus] = useState<'checking' | 'authenticating' | 'authenticated' | 'error'>('checking');
   const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
+  const [country, setCountry] = useState<string>('JP');
+
+  // Fetch user country for targeted ads
+  useEffect(() => {
+    const fetchCountry = async () => {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const testCountry = params.get('test_country');
+        const url = testCountry 
+          ? `${API_BASE}/api/geo?test_country=${testCountry}` 
+          : `${API_BASE}/api/geo`;
+
+        const res = await fetch(url, { credentials: 'include' });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.country) {
+            setCountry(data.country);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch country geo information:', err);
+      }
+    };
+    fetchCountry();
+  }, []);
 
   // Check auth status on mount
   useEffect(() => {
+    initGA();
     const checkAuth = async () => {
       try {
         const res = await fetch(`${API_BASE}/api/auth/me`, { credentials: 'include' });
@@ -511,15 +734,76 @@ export default function App() {
     checkAuth();
   }, []);
 
-  // Check for error parameters in URL on mount
+  // Log virtual PageView on view change
+  useEffect(() => {
+    logPageView(`/${view}`);
+  }, [view]);
+
+  // Dynamic Document Title and Meta Tags based on language
+  useEffect(() => {
+    const isEn = lang === 'en';
+    const titleText = isEn 
+      ? "gene46 | Swipe Genetic Algorithm Evolution System" 
+      : "gene46 | スワイプ遺伝的アルゴリズム進化システム";
+    const descText = isEn 
+      ? "A genetic algorithm simulation game where you select and eliminate AI cards by swiping, and evolve them over generations. Create your own evolutionary tree."
+      : "スワイプでAIカードを選択淘汰し、世代を重ねて進化させる遺伝的アルゴリズムシミュレーションゲーム。自分だけの進化系統樹を作り出そう。";
+    const keywordsText = isEn
+      ? "genetic algorithm, AI evolution, swipe game, simulation, natural selection, gene46"
+      : "遺伝的アルゴリズム, AI進化, スワイプゲーム, シミュレーション, 選択淘汰, gene46";
+
+    document.title = titleText;
+
+    // Update Meta Description
+    const metaDescription = document.querySelector('meta[name="description"]');
+    if (metaDescription) metaDescription.setAttribute('content', descText);
+
+    // Update og:description
+    const ogDescription = document.querySelector('meta[property="og:description"]');
+    if (ogDescription) ogDescription.setAttribute('content', descText);
+
+    // Update twitter:description
+    const twitterDescription = document.querySelector('meta[property="twitter:description"]');
+    if (twitterDescription) twitterDescription.setAttribute('content', descText);
+
+    // Update og:title
+    const ogTitle = document.querySelector('meta[property="og:title"]');
+    if (ogTitle) ogTitle.setAttribute('content', titleText);
+
+    // Update twitter:title
+    const twitterTitle = document.querySelector('meta[property="twitter:title"]');
+    if (twitterTitle) twitterTitle.setAttribute('content', titleText);
+
+    // Update keywords
+    const metaKeywords = document.querySelector('meta[name="keywords"]');
+    if (metaKeywords) metaKeywords.setAttribute('content', keywordsText);
+
+    // Update HTML lang attribute
+    document.documentElement.setAttribute('lang', isEn ? 'en' : 'ja');
+  }, [lang]);
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const errorParam = params.get('error');
     if (errorParam) {
-      showMsg(`ログインエラー: ${errorParam}`, 'error');
-      // Clean up the error query parameter from the browser URL bar
+      showMsg(lang === 'en' ? `Login error: ${errorParam}` : `ログインエラー: ${errorParam}`, 'error');
       const url = new URL(window.location.href);
       url.searchParams.delete('error');
+      window.history.replaceState({}, '', url.toString());
+    }
+
+    const paymentParam = params.get('payment');
+    if (paymentParam === 'success') {
+      showMsg(lang === 'en' ? '🎉 Thank you for your purchase! Premium features have been activated.' : '🎉 ご購入ありがとうございます！プレミアム機能が有効化されました。', 'success');
+      playPurchase();
+      const url = new URL(window.location.href);
+      url.searchParams.delete('payment');
+      window.history.replaceState({}, '', url.toString());
+      syncStaminaWithServer();
+    } else if (paymentParam === 'cancel') {
+      showMsg(lang === 'en' ? 'Payment was cancelled.' : '決済がキャンセルされました。', 'info');
+      const url = new URL(window.location.href);
+      url.searchParams.delete('payment');
       window.history.replaceState({}, '', url.toString());
     }
   }, []);
@@ -547,11 +831,11 @@ export default function App() {
           setSessionId(data.session_id);
           setSessionType(data.type);
           setAuthStatus('authenticated');
-          showMsg('セッションを開始しました（サイレント認証）', 'success');
+          showMsg(lang === 'en' ? 'Session started (silent auth)' : 'セッションを開始しました（サイレント認証）', 'success');
         }
       } catch (err: any) {
         console.error('Silent auth error:', err);
-        showMsg(`認証に失敗しました: ${err.message}`, 'error');
+        showMsg(lang === 'en' ? `Authentication failed: ${err.message}` : `認証に失敗しました: ${err.message}`, 'error');
       }
     };
 
@@ -585,7 +869,7 @@ export default function App() {
   const toggleSaveThread = (threadId: string) => {
     setSavedThreadIds(prev => {
       if (!prev.includes(threadId) && prev.length >= THREAD_FAVORITES_LIMIT) {
-        showMsg(`プロジェクトのお気に入りは${THREAD_FAVORITES_LIMIT}件までです。`, 'error');
+        showMsg(lang === 'en' ? `You can only favorite up to ${THREAD_FAVORITES_LIMIT} projects.` : `プロジェクトのお気に入りは${THREAD_FAVORITES_LIMIT}件までです。`, 'error');
         playError();
         return prev;
       }
@@ -619,6 +903,8 @@ export default function App() {
               setActiveThreadId(data.threads[0].id);
             }
           }
+        } else {
+          setLoading(false);
         }
       }
     } catch (err: any) {
@@ -629,6 +915,7 @@ export default function App() {
       }
       showMsg(`Failed to load threads: ${errorMsg}`, 'error');
       playError();
+      setLoading(false);
     }
   }, [activeThreadId]);
 
@@ -738,6 +1025,11 @@ export default function App() {
           if (append) {
             showMsg(`All specimens swiped! Auto-evolved to Gen ${data.generation}`, 'success');
             playEvolve();
+            setNewGenNotification(data.generation);
+            logEvent('thread_evolve', { thread_id: activeThreadId || '', generation: data.generation });
+            setTimeout(() => {
+              setNewGenNotification(null);
+            }, 1200);
           }
         }
         setGeneration(data.generation);
@@ -830,11 +1122,11 @@ export default function App() {
       if (data.success) {
         setSessionType('authenticated');
         setShowAuthModal(false);
-        showMsg('🎉 ログイン完了！（開発用アカウント）', 'success');
+        showMsg(lang === 'en' ? '🎉 Logged in! (Dev Account)' : '🎉 ログイン完了！（開発用アカウント）', 'success');
       }
     } catch (err: any) {
       console.error(err);
-      showMsg('モックログインに失敗しました', 'error');
+      showMsg(lang === 'en' ? 'Mock login failed' : 'モックログインに失敗しました', 'error');
     }
   };
 
@@ -849,7 +1141,7 @@ export default function App() {
   };
 
   const handleLogout = async () => {
-    if (!window.confirm('本当にログアウトしますか？\n（現在のデバイスでログイン状態が解除され、データがリセットされて新しい匿名アカウントになります）')) {
+    if (!window.confirm(lang === 'en' ? 'Are you sure you want to log out?\n(You will be logged out from this device, data will be reset, and a new anonymous account will be created)' : '本当にログアウトしますか？\n（現在のデバイスでログイン状態が解除され、データがリセットされて新しい匿名アカウントになります）')) {
       return;
     }
     try {
@@ -863,16 +1155,16 @@ export default function App() {
         localStorage.removeItem('project_x_saved_cards');
         localStorage.removeItem('project_x_saved_thread_ids');
         
-        showMsg('ログアウトしました。再起動しています...', 'success');
+        showMsg(lang === 'en' ? 'Logged out. Restarting...' : 'ログアウトしました。再起動しています...', 'success');
         setTimeout(() => {
           window.location.reload();
         }, 1200);
       } else {
-        showMsg('ログアウトに失敗しました。', 'error');
+        showMsg(lang === 'en' ? 'Failed to log out.' : 'ログアウトに失敗しました。', 'error');
       }
     } catch (err) {
       console.error('Logout error:', err);
-      showMsg('ログアウト中にエラーが発生しました。', 'error');
+      showMsg(lang === 'en' ? 'An error occurred during logout.' : 'ログアウト中にエラーが発生しました。', 'error');
     }
   };
 
@@ -882,11 +1174,11 @@ export default function App() {
     setTimeout(() => setMessage(null), 4000);
   };
 
-  // Submit Swipe to API
-  const submitSwipe = async (cardId: string, swipe: 'like' | 'nope') => {
+  // Submit Swipe Bulk to API
+  const submitSwipesBulk = async (swipesToSend: { card_id: string; swipe: 'like' | 'nope' }[]) => {
     if (!activeThreadId) return;
     try {
-      const response = await fetch(`${API_BASE}/api/swipe`, {
+      const response = await fetch(`${API_BASE}/api/swipe/bulk`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -894,8 +1186,7 @@ export default function App() {
         credentials: 'include',
         body: JSON.stringify({
           thread_id: activeThreadId,
-          card_id: cardId,
-          swipe,
+          swipes: swipesToSend,
           turnstile_token: turnstileToken
         })
       });
@@ -913,8 +1204,8 @@ export default function App() {
         fetchHistory();
       }
     } catch (err: any) {
-      console.error('Failed to submit swipe:', err);
-      showMsg(`Failed to submit swipe: ${err.message}`, 'error');
+      console.error('Failed to submit swipes in bulk:', err);
+      showMsg(`Failed to submit swipes: ${err.message}`, 'error');
       playError();
     }
   };
@@ -924,8 +1215,8 @@ export default function App() {
     const card = cards.find(c => c.id === cardId);
     const isAd = card?.is_honeypot === true;
 
-    if (!isAd && staminaData.stamina <= 0) {
-      showMsg('スタミナがありません！', 'error');
+    if (!isAd && staminaData.stamina <= 0 && staminaData.maxStamina < 9999) {
+      showMsg(lang === 'en' ? 'No stamina left!' : 'スタミナがありません！', 'error');
       playError();
       return;
     }
@@ -938,9 +1229,63 @@ export default function App() {
       playSwipeNope();
     }
 
-    submitSwipe(cardId, direction);
+    // Add to pending batch
+    const newSwipe = { card_id: cardId, swipe: direction };
+    const nextPending = [...pendingSwipes, newSwipe];
+    
     swipedCardIdsRef.current.push(cardId);
-    handleSwipeStateUpdate(isAd);
+
+    if (isAd) {
+      const correctSwipe = card?.required_swipe;
+      const isCorrect = direction === correctSwipe;
+      
+      if (isCorrect) {
+        showMsg(lang === 'en' ? '✅ Correct swipe! Bypassed ad card.' : '✅ 正しいスワイプ！広告をバイパスしました', 'success');
+        handleSwipeStateUpdate(true, false);
+        logEvent('swipe_card', { direction, is_ad: true, is_correct: true, card_id: cardId });
+      } else {
+        const nextOuts = Math.min(3, staminaData.outs + 1);
+        playError();
+        showMsg(lang === 'en' ? `🚨 Swiped in the wrong direction! (Outs: ${nextOuts}/3)` : `🚨 指示と異なる方向にスワイプしました！ (アウト: ${nextOuts}/3)`, 'error');
+        
+        handleSwipeStateUpdate(true, true);
+        logEvent('swipe_card', { direction, is_ad: true, is_correct: false, card_id: cardId });
+        
+        if (nextOuts === 3) {
+          logEvent('penalty_lock');
+        }
+        
+        // Immediately sync stamina with server to prevent reset via reload
+        const tempState = {
+          ...staminaData,
+          outs: nextOuts,
+          lastOutRecoveryTime: staminaData.outs === 0 ? Date.now() : staminaData.lastOutRecoveryTime
+        };
+        syncStaminaWithServer(tempState);
+      }
+    } else {
+      handleSwipeStateUpdate(false, false);
+      logEvent('swipe_card', { direction, is_ad: false, card_id: cardId });
+    }
+
+    if (nextPending.length >= 25) {
+      // Trigger bulk submit and effects
+      submitSwipesBulk(nextPending);
+      setPendingSwipes([]);
+      
+      // Sync stamina
+      setTimeout(() => {
+        syncStaminaWithServer();
+      }, 500);
+
+      // Play special charge animation
+      playEvolve(); // reuse evolve sound for punchy feedback
+      setShowChargeEffect(true);
+      setTimeout(() => setShowChargeEffect(false), 2000);
+      showMsg('✨ SPECIAL EFFECT CHARGE MAX! Swipes synced! ✨', 'success');
+    } else {
+      setPendingSwipes(nextPending);
+    }
 
     if (isTestSwipe) {
       setTimeout(() => {
@@ -967,7 +1312,7 @@ export default function App() {
 
     const cost = newThreadType === 'line' ? 200 : 500;
     if (staminaData.souls < cost) {
-      showMsg(`Soulが足りません！作成には ${cost} Soulが必要です。（現在: ${staminaData.souls} Soul）`, 'error');
+      showMsg(lang === 'en' ? `Not enough Souls! Requires ${cost} Souls. (Current: ${staminaData.souls} Souls)` : `Soulが足りません！作成には ${cost} Soulが必要です。（現在: ${staminaData.souls} Soul）`, 'error');
       playError();
       return;
     }
@@ -1000,11 +1345,12 @@ export default function App() {
           return nextData;
         });
 
-        showMsg(`プロジェクト「${data.thread.name}」を作成しました！（コスト: ${cost} Soul）`, 'success');
+        showMsg(lang === 'en' ? `Created project "${data.thread.name}"! (Cost: ${cost} Souls)` : `プロジェクト「${data.thread.name}」を作成しました！（コスト: ${cost} Soul）`, 'success');
         playCreate();
         setNewThreadName('');
         setShowCreateModal(false);
         await fetchThreads(data.thread.id);
+        logEvent('create_thread', { thread_name: data.thread.name, thread_type: newThreadType, cost });
       }
     } catch (err) {
       console.error(err);
@@ -1140,7 +1486,7 @@ export default function App() {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    showMsg('画像をダウンロードしました！', 'success');
+    showMsg(lang === 'en' ? 'Image downloaded!' : '画像をダウンロードしました！', 'success');
   };
 
   const CARD_FAVORITES_LIMIT = 10;
@@ -1150,10 +1496,10 @@ export default function App() {
     let updatedCards: SavedCard[] = [];
     if (isAlreadySaved) {
       updatedCards = savedCards.filter(c => c.id !== card.id);
-      showMsg('カードをコレクションから削除しました。', 'info');
+      showMsg(lang === 'en' ? 'Removed card from favorites.' : 'カードをコレクションから削除しました。', 'info');
     } else {
       if (savedCards.length >= CARD_FAVORITES_LIMIT) {
-        showMsg(`カードのお気に入りは${CARD_FAVORITES_LIMIT}件までです。`, 'error');
+        showMsg(lang === 'en' ? `You can only favorite up to ${CARD_FAVORITES_LIMIT} cards.` : `カードのお気に入りは${CARD_FAVORITES_LIMIT}件までです。`, 'error');
         playError();
         return;
       }
@@ -1167,7 +1513,7 @@ export default function App() {
         savedAt: Date.now()
       };
       updatedCards = [newSavedCard, ...savedCards];
-      showMsg('カードをコレクションに保存しました！', 'success');
+      showMsg(lang === 'en' ? 'Saved card to favorites!' : 'カードをコレクションに保存しました！', 'success');
     }
     setSavedCards(updatedCards);
     localStorage.setItem('project_x_saved_cards', JSON.stringify(updatedCards));
@@ -1177,13 +1523,13 @@ export default function App() {
     e.preventDefault();
     if (!selectedCard) return;
     if (!forkThreadName.trim()) {
-      showMsg('プロジェクト名は必須です', 'error');
+      showMsg(lang === 'en' ? 'Project name is required' : 'プロジェクト名は必須です', 'error');
       playError();
       return;
     }
     const cost = 1000;
     if (staminaData.souls < cost) {
-      showMsg(`Soulが足りません！作成には ${cost} Soulが必要です。`, 'error');
+      showMsg(lang === 'en' ? `Not enough Souls! Requires ${cost} Souls.` : `Soulが足りません！作成には ${cost} Soulが必要です。`, 'error');
       playError();
       return;
     }
@@ -1217,7 +1563,7 @@ export default function App() {
           return nextData;
         });
 
-        showMsg(`分岐プロジェクト「${data.thread.name}」を作成しました！（コスト: ${cost} Soul）`, 'success');
+        showMsg(lang === 'en' ? `Created branch project "${data.thread.name}"! (Cost: ${cost} Souls)` : `分岐プロジェクト「${data.thread.name}」を作成しました！（コスト: ${cost} Soul）`, 'success');
         playCreate();
         setForkThreadName('');
         setForkingMode(false);
@@ -1236,7 +1582,7 @@ export default function App() {
 
   const handleInstallPwa = async () => {
     if (!deferredPrompt) {
-      alert("iOS (Safari) の場合は、ブラウザ下部の共有アイコン（スクエアに上矢印）をタップし、「ホーム画面に追加」を選択してください。\n\nAndroid/Chrome等の場合は、すでにインストールされているか、ブラウザメニューからインストールできます。");
+      alert(lang === 'en' ? "For iOS (Safari), tap the Share icon at the bottom of the browser (square with up arrow) and select 'Add to Home Screen'.\n\nFor Android/Chrome etc., it may already be installed, or you can install it from the browser menu." : "iOS (Safari) の場合は、ブラウザ下部の共有アイコン（スクエアに上矢印）をタップし、「ホーム画面に追加」を選択してください。\n\nAndroid/Chrome等の場合は、すでにインストールされているか、ブラウザメニューからインストールできます。");
       return;
     }
     try {
@@ -1252,7 +1598,7 @@ export default function App() {
   const handleSubmitReport = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!reportDesc.trim()) {
-      showMsg('内容を入力してください。', 'error');
+      showMsg(lang === 'en' ? 'Please enter the details.' : '内容を入力してください。', 'error');
       return;
     }
     setSubmittingReport(true);
@@ -1272,13 +1618,14 @@ export default function App() {
         const errorData = await res.json().catch(() => ({}));
         throw new Error(errorData.error || `HTTP ${res.status}`);
       }
-      showMsg('ご報告ありがとうございました。', 'success');
+      showMsg(lang === 'en' ? 'Thank you for your report.' : 'ご報告ありがとうございました。', 'success');
+      logEvent('send_report', { category: reportCategory });
       setReportDesc('');
       setShowReportModal(false);
       setShowDrawer(false);
     } catch (err: any) {
       console.error(err);
-      showMsg(`報告に失敗しました: ${err.message}`, 'error');
+      showMsg(lang === 'en' ? `Failed to send report: ${err.message}` : `報告に失敗しました: ${err.message}`, 'error');
       playError();
     } finally {
       setSubmittingReport(false);
@@ -1289,7 +1636,7 @@ export default function App() {
   const handleDeleteThread = async (threadId: string) => {
     const thread = threads.find(t => t.id === threadId);
     if (!thread) return;
-    if (!window.confirm(`本当にプロジェクト「${thread.name}」を削除しますか？\n（この操作は取り消せません）`)) {
+    if (!window.confirm(lang === 'ja' ? `本当にプロジェクト「${thread.name}」を削除しますか？\n（この操作は取り消せません）` : `Are you sure you want to delete project "${thread.name}"?\n(This action cannot be undone)`)) {
       return;
     }
     try {
@@ -1307,7 +1654,7 @@ export default function App() {
       if (data.error) {
         showMsg(data.error, 'error');
       } else if (data.success) {
-        showMsg(`プロジェクト「${thread.name}」を削除しました。`, 'success');
+        showMsg(lang === 'ja' ? `プロジェクト「${thread.name}」を削除しました。` : `Deleted project "${thread.name}".`, 'success');
         
         // Remove from saved threads if it was saved
         setSavedThreadIds(prev => {
@@ -1328,11 +1675,213 @@ export default function App() {
       }
     } catch (err) {
       console.error(err);
-      showMsg('プロジェクトの削除に失敗しました。', 'error');
+      showMsg(lang === 'ja' ? 'プロジェクトの削除に失敗しました。' : 'Failed to delete project.', 'error');
+    }
+  };
+
+  // Rename Thread API Call
+  const handleRenameThread = async (threadId: string, currentName: string) => {
+    const newName = window.prompt(lang === 'ja' ? '新しいプロジェクト名を入力してください：' : 'Please enter the new project name:', currentName);
+    if (newName === null) return; // cancelled
+    if (!newName.trim()) {
+      showMsg(lang === 'ja' ? 'プロジェクト名は必須です。' : 'Project name is required.', 'error');
+      return;
+    }
+    if (newName.trim() === currentName) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/api/threads/rename`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          thread_id: threadId,
+          name: newName.trim()
+        })
+      });
+      const data = await res.json();
+      if (data.error) {
+        showMsg(data.error, 'error');
+      } else if (data.success) {
+        showMsg(lang === 'ja' ? 'プロジェクト名を変更しました。' : 'Project name updated.', 'success');
+        playClick();
+        setThreads(prev => prev.map(t => t.id === threadId ? { ...t, name: newName.trim() } : t));
+      }
+    } catch (err) {
+      console.error(err);
+      showMsg(lang === 'en' ? 'Failed to rename project.' : '名称の変更に失敗しました。', 'error');
     }
   };
 
 
+
+  const renderSidebarContent = (isDrawer: boolean) => {
+    return (
+      <div className="flex flex-col justify-between h-full">
+        <div>
+          {/* Header */}
+          <div className="flex items-center justify-between border-b border-gray-900 pb-4 mb-6">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-gradient-to-tr from-purple-600 to-indigo-600">
+                <Sparkles className="w-4 h-4 text-white" />
+              </div>
+              <span className="text-base font-bold text-gray-200 tracking-wider">
+                {lang === 'ja' ? 'gene46 メニュー' : 'gene46 Menu'}
+              </span>
+            </div>
+            {isDrawer && (
+              <button
+                onClick={() => setShowDrawer(false)}
+                className="p-1.5 text-gray-500 hover:text-gray-300 rounded-lg hover:bg-gray-900 transition-colors"
+                title={lang === 'ja' ? '閉じる' : 'Close'}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          {/* Quick Settings Row */}
+          <div className="flex items-center justify-between bg-gray-950/40 border border-gray-900 rounded-xl px-4 py-2.5 mb-4 text-xs">
+            {/* Language Switcher */}
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">
+                {lang === 'ja' ? '言語' : 'Language'}
+              </span>
+              <div className="flex p-0.5 bg-black/40 border border-gray-900 rounded-lg font-bold text-[9px]">
+                <button
+                  onClick={() => { playClick(); changeLang('ja'); }}
+                  className={`px-2 py-0.5 rounded transition-all ${
+                    lang === 'ja'
+                      ? 'bg-purple-600/20 text-purple-300 border border-purple-500/10'
+                      : 'text-gray-500 hover:text-gray-400 border border-transparent'
+                  }`}
+                >
+                  JP
+                </button>
+                <button
+                  onClick={() => { playClick(); changeLang('en'); }}
+                  className={`px-2 py-0.5 rounded transition-all ${
+                    lang === 'en'
+                      ? 'bg-purple-600/20 text-purple-300 border border-purple-500/10'
+                      : 'text-gray-500 hover:text-gray-400 border border-transparent'
+                  }`}
+                >
+                  EN
+                </button>
+              </div>
+            </div>
+
+            {/* Sound Toggle */}
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">
+                {lang === 'ja' ? '音量' : 'Audio'}
+              </span>
+              <button
+                onClick={toggleSound}
+                className={`p-1 rounded-lg border transition-all flex items-center justify-center ${
+                  soundEnabledState
+                    ? 'bg-purple-950/20 border-purple-500/20 text-purple-400 hover:bg-purple-950/40'
+                    : 'bg-gray-950 border-gray-900 text-gray-600 hover:bg-gray-900'
+                }`}
+                title={soundEnabledState ? (lang === 'ja' ? 'ミュートにする' : 'Mute') : (lang === 'ja' ? '音声を有効化' : 'Unmute')}
+              >
+                {soundEnabledState ? (
+                  <Volume2 className="w-3.5 h-3.5" />
+                ) : (
+                  <VolumeX className="w-3.5 h-3.5" />
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Navigation Menu */}
+          <nav className="space-y-4">
+            {/* Account Section */}
+            <div>
+              {sessionType === 'anonymous' ? (
+                <button
+                  onClick={() => {
+                    playClick();
+                    handleClerkUpgrade();
+                  }}
+                  className="w-full text-left px-4 py-3 bg-gradient-to-r from-purple-600/20 to-indigo-600/20 border border-purple-500/30 hover:border-purple-500/60 rounded-xl text-xs font-bold text-purple-200 hover:text-white transition-all flex items-center justify-between shadow-lg shadow-purple-950/20"
+                >
+                  <span className="flex items-center gap-2">
+                    <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+                    {lang === 'ja' ? 'クラウドに保存（ログイン）' : 'Save to Cloud (Login)'}
+                  </span>
+                  <span className="text-purple-400 text-[10px]">→</span>
+                </button>
+              ) : (
+                <div className="space-y-2">
+                  <div className="w-full px-4 py-2.5 bg-emerald-950/10 border border-emerald-500/20 rounded-xl text-[11px] font-bold text-emerald-400 flex items-center gap-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    {lang === 'ja' ? 'クラウド同期済み（登録済）' : 'Synced to Cloud (Registered)'}
+                  </div>
+                  <button
+                    onClick={() => {
+                      playClick();
+                      handleLogout();
+                    }}
+                    className="w-full text-left px-4 py-2 bg-rose-950/10 border border-rose-500/10 hover:border-rose-500/30 rounded-lg text-[9px] font-bold text-rose-400 hover:text-rose-300 transition-all flex items-center justify-between"
+                  >
+                    <span>{lang === 'ja' ? 'アカウントのログアウト' : 'Logout Account'}</span>
+                    <span className="text-rose-400 opacity-60">→</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Document Links Section */}
+            <div className="bg-gray-950/40 border border-gray-900 rounded-xl overflow-hidden divide-y divide-gray-900/60">
+              <button
+                onClick={() => {
+                  setShowTermsModal(true);
+                }}
+                className="w-full text-left px-4 py-3 hover:bg-gray-900/40 text-xs font-semibold text-gray-300 hover:text-white transition-all flex items-center justify-between border-none"
+              >
+                <span>{lang === 'ja' ? '利用規約' : 'Terms of Service'}</span>
+                <span className="text-gray-600 text-[10px]">→</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setShowPrivacyModal(true);
+                }}
+                className="w-full text-left px-4 py-3 hover:bg-gray-900/40 text-xs font-semibold text-gray-300 hover:text-white transition-all flex items-center justify-between border-none"
+              >
+                <span>{lang === 'ja' ? 'プライバシーポリシー' : 'Privacy Policy'}</span>
+                <span className="text-gray-600 text-[10px]">→</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setShowCommercialModal(true);
+                }}
+                className="w-full text-left px-4 py-3 hover:bg-gray-900/40 text-xs font-semibold text-gray-300 hover:text-white transition-all flex items-center justify-between border-none"
+              >
+                <span>{lang === 'ja' ? '特定商取引法に基づく表記・返金' : 'Legal & Refund Policy'}</span>
+                <span className="text-gray-600 text-[10px]">→</span>
+              </button>
+            </div>
+          </nav>
+        </div>
+
+        {/* Session ID / Debug info at the bottom */}
+        <div className="border-t border-gray-900 pt-4 mt-6 text-[8px] text-gray-600 space-y-1">
+          <div className="flex items-center justify-between text-gray-500">
+            <span>Session ID:</span>
+            <span className="font-mono truncate max-w-[160px]" title={sessionId}>{sessionId.slice(-12)}</span>
+          </div>
+          <div className="text-center mt-2">
+            © 2026 gene46 Project. All rights reserved.
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   if (authStatus === 'checking' || authStatus === 'authenticating') {
     return (
@@ -1343,7 +1892,7 @@ export default function App() {
           <div className="p-4 rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-600 shadow-2xl shadow-indigo-600/30">
             <Sparkles className="w-8 h-8 text-white animate-pulse" />
           </div>
-          <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white via-gray-300 to-gray-500 tracking-widest animate-pulse">gene46</h1>
+          <div className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white via-gray-300 to-gray-500 tracking-widest animate-pulse">gene46</div>
           <div className="flex items-center gap-2 mt-4 text-xs font-semibold text-purple-400 uppercase tracking-widest">
             <RefreshCw className="w-4 h-4 animate-spin" />
             <span>Connecting securely...</span>
@@ -1355,12 +1904,19 @@ export default function App() {
   }
 
   return (
-    <div className="h-[100dvh] bg-[#07080d] text-gray-100 flex flex-col items-center justify-between font-sans selection:bg-purple-600 selection:text-white relative overflow-hidden pb-2 sm:pb-3 md:pb-4">
+    <div className="h-[100dvh] bg-[#07080d] text-gray-100 flex flex-row items-stretch justify-between font-sans selection:bg-purple-600 selection:text-white relative overflow-hidden">
       
-      {/* Background Gradients */}
-      <div className="absolute top-[-20%] left-[-20%] w-[60%] h-[60%] rounded-full bg-purple-900/10 blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-[-20%] right-[-20%] w-[60%] h-[60%] rounded-full bg-emerald-900/10 blur-[120px] pointer-events-none" />
-      <div className="absolute top-[40%] left-[30%] w-[40%] h-[40%] rounded-full bg-indigo-900/10 blur-[150px] pointer-events-none" />
+      {/* PC版の左サイドバー (常時展開メニュー) */}
+      <div className="hidden lg:flex w-[280px] sm:w-[320px] bg-[#090a0f]/95 border-r border-gray-900 p-6 flex-col justify-between shadow-2xl backdrop-blur-md text-left flex-shrink-0 z-20">
+        {renderSidebarContent(false)}
+      </div>
+
+      {/* 中央：元のスマホ向け画面 */}
+      <div className="flex-1 flex flex-col items-center justify-between relative overflow-hidden pb-2 sm:pb-3 md:pb-4 max-w-lg mx-auto">
+        {/* Background Gradients */}
+        <div className="absolute top-[-20%] left-[-20%] w-[60%] h-[60%] rounded-full bg-purple-900/10 blur-[120px] pointer-events-none" />
+        <div className="absolute bottom-[-20%] right-[-20%] w-[60%] h-[60%] rounded-full bg-emerald-900/10 blur-[120px] pointer-events-none" />
+        <div className="absolute top-[40%] left-[30%] w-[40%] h-[40%] rounded-full bg-indigo-900/10 blur-[150px] pointer-events-none" />
 
       {/* Header */}
       <header className="w-full max-w-lg px-6 pt-3 sm:pt-4 flex-shrink-0 flex flex-col items-center gap-4 z-20">
@@ -1519,21 +2075,21 @@ export default function App() {
                         const shareUrl = `${window.location.origin}${window.location.pathname}?t=${activeThread.id}`;
                         navigator.clipboard.writeText(shareUrl)
                           .then(() => {
-                            showMsg('プロジェクトの共有リンクをコピーしました！', 'success');
+                            showMsg(lang === 'en' ? 'Copied project share link!' : 'プロジェクトの共有リンクをコピーしました！', 'success');
                           })
                           .catch(() => {
-                            showMsg('コピーに失敗しました', 'error');
+                            showMsg(lang === 'en' ? 'Failed to copy' : 'コピーに失敗しました', 'error');
                           });
                       }}
                       className="p-1 text-gray-500 hover:text-purple-400 hover:bg-purple-950/30 rounded transition-colors flex-shrink-0"
-                      title="プロジェクトのリンクをコピー"
+                      title={lang === 'en' ? 'Copy project link' : 'プロジェクトのリンクをコピー'}
                     >
                       <Copy className="w-3 h-3" />
                     </button>
                   </div>
                   <div className="flex items-center gap-1.5 flex-shrink-0">
                     <span className="px-2 py-0.5 text-[8px] rounded bg-purple-950/30 border border-purple-500/10 text-purple-300 font-medium">
-                      {activeThread.type === 'line' ? 'ライン' : 'モザイク'}
+                      {activeThread.type === 'line' ? (lang === 'en' ? 'Line' : 'ライン') : (lang === 'en' ? 'Mosaic' : 'モザイク')}
                     </span>
                     <Diamond className="w-3.5 h-3.5 text-purple-400 group-hover:scale-110 transition-transform" />
                   </div>
@@ -1573,7 +2129,63 @@ export default function App() {
 
               {/* Deck Container */}
               <div className="relative w-full max-w-[min(380px,100dvh-280px)] aspect-square flex items-center justify-center mb-2 sm:mb-4 md:mb-5">
-                {loading ? (
+                {/* Fullscreen/Center Generation Transition VFX */}
+                <AnimatePresence>
+                  {newGenNotification !== null && (
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.6, y: 15 }}
+                      animate={{ opacity: 1, scale: 1.0, y: 0 }}
+                      exit={{ opacity: 0, scale: 1.2, y: -15 }}
+                      transition={{ duration: 0.35, ease: "easeOut" }}
+                      className="absolute z-40 pointer-events-none flex flex-col items-center justify-center bg-black/80 border border-purple-500/20 px-8 py-6 rounded-3xl shadow-[0_0_40px_rgba(168,85,247,0.35)] backdrop-blur-md"
+                      style={{ fontFamily: "'Outfit', sans-serif" }}
+                    >
+                      <span className="text-[9px] text-purple-400 font-extrabold uppercase tracking-[0.25em] mb-1">Evolution Advanced</span>
+                      <h2 className="text-3xl font-black bg-clip-text text-transparent bg-gradient-to-r from-yellow-300 via-pink-400 to-purple-400 drop-shadow-[0_0_8px_rgba(253,224,71,0.5)]">
+                        {newGenNotification}世代
+                      </h2>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {staminaData.outs === 3 && !staminaData.isAdFree ? (
+                  <div className="text-center p-6 bg-[#0c0e15]/95 border border-red-500/20 rounded-3xl flex flex-col items-center justify-center w-full h-full relative overflow-hidden backdrop-blur-lg shadow-2xl z-30"
+                       style={{ fontFamily: "'Outfit', sans-serif" }}>
+                    <div className="absolute top-[-20%] w-[60%] h-[40%] rounded-full bg-red-500/10 blur-3xl pointer-events-none" />
+                    <ShieldAlert className="w-12 h-12 text-red-500 animate-pulse mb-3" />
+                    <h3 className="text-base font-black text-red-400 uppercase tracking-widest mb-2">
+                      {lang === 'en' ? '🚨 Penalty Active' : '🚨 ペナルティ発生中'}
+                    </h3>
+                    <p className="text-[11px] text-gray-400 leading-relaxed max-w-[260px] mb-4 text-center">
+                      {lang === 'en' ? 'You swiped in the opposite direction of the noise card instructions and have been locked.' : 'ノイズカードの指示とは異なる方向にスワイプしたため、ロックされました。'}
+                    </p>
+                    <div className="bg-black/40 border border-red-950 px-4 py-2 rounded-xl mb-5 font-mono">
+                      <span className="text-[10px] text-gray-500 block mb-0.5 uppercase tracking-wider">
+                        {lang === 'en' ? 'Auto-unlock in' : '自動解除まで残り'}
+                      </span>
+                      <span className="text-xl font-bold text-red-400 tracking-widest">
+                        {(() => {
+                          const remaining = Math.max(0, (staminaData.lastOutRecoveryTime + 3600000) - nowTime);
+                          const mins = Math.floor(remaining / 60000);
+                          const secs = Math.floor((remaining % 60000) / 1000);
+                          return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                        })()}
+                      </span>
+                    </div>
+                    <p className="text-[9px] text-gray-500 max-w-[240px] leading-normal mb-3 text-center">
+                      {lang === 'en' ? '*Purchasing the "Ad-Free Pass" in the shop disables ad cards completely and lifts all penalties instantly!' : '※ショップで「アドフリーパス」を購入すると、広告カード自体が表示されなくなり、ペナルティも即時解除されます！'}
+                    </p>
+                    <button
+                      onClick={() => {
+                        playClick();
+                        setView('shop');
+                      }}
+                      className="px-4 py-2 text-[10px] font-extrabold bg-gradient-to-r from-red-600 to-pink-600 rounded-lg hover:from-red-500 hover:to-pink-500 transition-all uppercase tracking-widest text-white shadow-lg shadow-red-950/40 active:scale-95"
+                    >
+                      {lang === 'en' ? 'Go to Shop' : 'ショップに行く'}
+                    </button>
+                  </div>
+                ) : loading ? (
                   <div className="flex flex-col items-center gap-3">
                     <RefreshCw className="w-8 h-8 text-indigo-500 animate-spin" />
                     <p className="text-gray-500 text-xs tracking-wider animate-pulse">LOADING SPECIMENS...</p>
@@ -1614,7 +2226,9 @@ export default function App() {
                         gene46 <span className="text-purple-400 font-medium">Evolution</span>
                       </h2>
                       <p className="text-xs text-gray-400 leading-relaxed max-w-[280px] mx-auto mb-6">
-                        遺伝子の螺旋を探索し、 specimen（スペックメン）の進化を進めるにはログインが必要です。
+                        {lang === 'ja'
+                          ? '遺伝子の螺旋を探索し、 specimen（スペックメン）の進化を進めるにはログインが必要です。'
+                          : 'Explore the gene helix and log in to continue the evolution of specimens.'}
                       </p>
 
                       {/* Continue with Google button */}
@@ -1631,7 +2245,7 @@ export default function App() {
                           <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" fill="#FBBC05"/>
                           <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335"/>
                         </svg>
-                        Googleでログイン
+                        {lang === 'ja' ? 'Googleでログイン' : 'Sign in with Google'}
                       </button>
 
                       {import.meta.env.DEV && (
@@ -1648,13 +2262,23 @@ export default function App() {
 
                       {/* Muted Terms */}
                       <p className="text-[10px] text-gray-500 leading-normal max-w-[240px] mx-auto">
-                        ログインすることで、当サービスの
-                        <a href="#" className="underline hover:text-gray-400 mx-1">利用規約</a>及び
-                        <a href="#" className="underline hover:text-gray-400 ml-1">プライバシーポリシー</a>に同意したものとみなされます。
+                        {lang === 'ja' ? (
+                          <>
+                            ログインすることで、当サービスの
+                            <a href="#" className="underline hover:text-gray-400 mx-1" onClick={(e) => { e.preventDefault(); setShowTermsModal(true); }}>利用規約</a>及び
+                            <a href="#" className="underline hover:text-gray-400 ml-1" onClick={(e) => { e.preventDefault(); setShowPrivacyModal(true); }}>プライバシーポリシー</a>に同意したものとみなされます。
+                          </>
+                        ) : (
+                          <>
+                            By logging in, you agree to our
+                            <a href="#" className="underline hover:text-gray-400 mx-1" onClick={(e) => { e.preventDefault(); setShowTermsModal(true); }}>Terms of Service</a> and
+                            <a href="#" className="underline hover:text-gray-400 ml-1" onClick={(e) => { e.preventDefault(); setShowPrivacyModal(true); }}>Privacy Policy</a>.
+                          </>
+                        )}
                       </p>
                     </div>
                   </div>
-                ) : staminaData.stamina <= 0 ? (
+                ) : (staminaData.stamina <= 0 && staminaData.maxStamina < 9999) ? (
                   <div className="text-center p-6 bg-gray-950/40 border border-gray-900 rounded-2xl flex flex-col items-center justify-center gap-4 w-full h-full relative overflow-hidden">
                     <div className="absolute top-[-20%] left-[-20%] w-[60%] h-[60%] rounded-full bg-rose-950/20 blur-[50px] pointer-events-none" />
                     <div className="relative">
@@ -1662,15 +2286,19 @@ export default function App() {
                       <div className="absolute inset-0 bg-rose-500/20 blur-xl rounded-full" />
                     </div>
                     <div>
-                      <p className="text-rose-400 font-bold text-sm tracking-wider">スタミナ切れ</p>
-                      <p className="text-gray-400 text-[10px] mt-1 uppercase tracking-wider">時間経過で徐々に回復します</p>
+                      <p className="text-rose-400 font-bold text-sm tracking-wider">
+                        {lang === 'ja' ? 'スタミナ切れ' : 'Out of Stamina'}
+                      </p>
+                      <p className="text-gray-400 text-[10px] mt-1 uppercase tracking-wider">
+                        {lang === 'ja' ? '時間経過で徐々に回復します' : 'Recovers gradually over time'}
+                      </p>
                     </div>
                     <div className="px-4 py-2 rounded-xl bg-gray-900 border border-gray-800 text-xs font-semibold text-gray-200">
-                      回復まで: <span className="text-purple-400 font-bold">{nextRecoverySeconds}秒</span>
+                      {lang === 'ja' ? '回復まで:' : 'Next recovery:'} <span className="text-purple-400 font-bold">{nextRecoverySeconds}{lang === 'ja' ? '秒' : 's'}</span>
                     </div>
                     <div className="text-[9px] text-gray-500 uppercase tracking-widest font-semibold text-center mt-1 space-y-0.5">
-                      <div>現在のスワイプ上限: <span className="text-gray-300 font-bold">{staminaData.maxStamina}</span></div>
-                      <div>所持ソウル: <span className="text-yellow-300 font-bold">🔮 {staminaData.souls} Soul</span></div>
+                      <div>{lang === 'ja' ? '現在のスワイプ上限: ' : 'Current Swipe Limit: '}<span className="text-gray-300 font-bold">{staminaData.maxStamina}</span></div>
+                      <div>{lang === 'ja' ? '所持ソウル: ' : 'Souls Owned: '}<span className="text-yellow-300 font-bold"><BlueFire /> {staminaData.souls} Soul</span></div>
                     </div>
                     <button
                       onClick={() => {
@@ -1680,17 +2308,17 @@ export default function App() {
                       className="px-4 py-2 text-xs font-semibold bg-gradient-to-r from-purple-600 to-indigo-600 rounded-lg hover:from-purple-500 hover:to-indigo-500 text-white transition-colors shadow-md flex items-center gap-1 border border-purple-500/20"
                     >
                       <Sparkles className="w-3.5 h-3.5 text-yellow-300 animate-pulse" />
-                      ショップを開く
+                      {lang === 'ja' ? 'ショップを開く' : 'Open Shop'}
                     </button>
 
                     {/* PWA recommendation banner */}
                     {!isPwaInstalled && (
                       <div className="w-full max-w-[280px] mt-2 p-2.5 bg-indigo-950/20 border border-indigo-500/10 rounded-xl flex flex-col items-center gap-1.5 backdrop-blur-sm relative z-10">
                         <span className="text-[8px] uppercase tracking-widest text-indigo-400 font-extrabold flex items-center gap-1">
-                          💡 アプリ（PWA）の追加
+                          {lang === 'ja' ? '💡 アプリ（PWA）の追加' : '💡 Add App (PWA)'}
                         </span>
                         <p className="text-[9px] text-gray-400 text-center leading-relaxed font-medium">
-                          忘れないようにホーム画面にアプリを追加しませんか？
+                          {lang === 'ja' ? '忘れないようにホーム画面にアプリを追加しませんか？' : 'Would you like to add this app to your home screen?'}
                         </p>
                         <button
                           onClick={() => {
@@ -1699,7 +2327,9 @@ export default function App() {
                           }}
                           className="w-full mt-1 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[10px] font-bold transition-all shadow-md active:scale-[0.98]"
                         >
-                          {deferredPrompt ? 'アプリをインストール' : 'インストール方法を見る'}
+                          {deferredPrompt
+                            ? (lang === 'ja' ? 'アプリをインストール' : 'Install App')
+                            : (lang === 'ja' ? 'インストール方法を見る' : 'View Installation Guide')}
                         </button>
                       </div>
                     )}
@@ -1739,7 +2369,7 @@ export default function App() {
                               </span>
                             </div>
                           ) : card.is_honeypot ? (
-                            <NoiseCard />
+                            <NoiseCard requiredSwipe={card.required_swipe} />
                           ) : mode === 'line' ? (
                             <LineCanvas 
                               dna={card.dna as LineDNA} 
@@ -1768,11 +2398,50 @@ export default function App() {
               className="w-full max-w-[400px] flex flex-col p-5 bg-[#090a10]/80 border border-gray-900 rounded-3xl shadow-2xl backdrop-blur-md min-h-[420px]"
             >
               {/* Header */}
-              <div className="flex items-center justify-between border-b border-gray-900 pb-3.5 mb-5">
-                <div className="flex items-center gap-2">
-                  <Activity className="w-4 h-4 text-purple-400" />
-                  <h2 className="text-xs font-bold text-gray-200 uppercase tracking-wider">プロジェクト選択・管理</h2>
-                </div>
+              <div className="flex items-center justify-between border-b border-gray-900 pb-3.5 mb-5 h-8">
+                {isSearchActive ? (
+                  <div className="flex-1 flex items-center gap-1.5 bg-gray-950/60 border border-gray-800 focus-within:border-purple-500/50 rounded-lg px-2.5 py-1 transition-all h-7">
+                    <Search className="w-3.5 h-3.5 text-gray-500" />
+                    <input
+                      type="text"
+                      value={threadSearchQuery}
+                      onChange={(e) => setThreadSearchQuery(e.target.value)}
+                      placeholder={lang === 'ja' ? "プロジェクト名で検索..." : "Search projects..."}
+                      className="bg-transparent text-[10px] font-medium text-gray-200 focus:outline-none flex-1 placeholder:text-gray-600 border-none p-0"
+                      autoFocus
+                    />
+                    <button
+                      onClick={() => {
+                        playClick();
+                        setThreadSearchQuery('');
+                        setIsSearchActive(false);
+                      }}
+                      className="p-0.5 text-gray-500 hover:text-gray-300 transition-colors"
+                      title="閉じる"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between w-full h-7">
+                    <div className="flex items-center gap-2">
+                      <Activity className="w-4 h-4 text-purple-400" />
+                      <h2 className="text-xs font-bold text-gray-200 uppercase tracking-wider">
+                        {lang === 'en' ? 'Project Selection / Management' : 'プロジェクト選択・管理'}
+                      </h2>
+                    </div>
+                    <button
+                      onClick={() => {
+                        playClick();
+                        setIsSearchActive(true);
+                      }}
+                      className="p-1 text-gray-400 hover:text-purple-400 hover:bg-purple-950/20 rounded transition-all"
+                      title={lang === 'en' ? 'Search projects' : 'プロジェクト検索'}
+                    >
+                      <Search className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Create Thread Action */}
@@ -1786,7 +2455,7 @@ export default function App() {
                     className="w-full py-2.5 border border-dashed border-purple-500/30 bg-purple-950/10 hover:bg-purple-950/20 hover:border-purple-500/60 text-purple-300 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-purple-950/20"
                   >
                     <Plus className="w-4 h-4" />
-                    新規プロジェクトを作成
+                    {lang === 'ja' ? '新規プロジェクトを作成' : 'Create New Project'}
                   </button>
                 </div>
               )}
@@ -1795,125 +2464,24 @@ export default function App() {
               <div className="flex-1 flex flex-col min-h-0">
                 {threadsTab === 'all' ? (
                   <div className="flex-1 overflow-y-auto pr-1 max-h-[340px] scrollbar-thin scrollbar-thumb-gray-800 scrollbar-track-transparent">
-                    <div className="grid grid-cols-2 gap-2">
-                    {threads.map(thread => {
-                      const isActive = thread.id === activeThreadId;
-                      const isSaved = savedThreadIds.includes(thread.id);
-                      const preview = threadPreviews[thread.id];
-                      return (
-                        <div
-                          key={thread.id}
-                          className={`group relative flex flex-col rounded-xl border overflow-hidden cursor-pointer transition-all ${
-                            isActive
-                              ? 'border-purple-500/60 shadow-[0_0_12px_rgba(168,85,247,0.25)]'
-                              : 'border-gray-800 hover:border-purple-500/30'
-                          }`}
-                        >
-                          {/* Preview thumbnail */}
-                          <button
-                            onClick={() => {
-                              playClick();
-                              setActiveThreadId(thread.id);
-                              setView('swipe');
-                            }}
-                            className="w-full aspect-square bg-black overflow-hidden flex items-center justify-center relative"
-                          >
-                            {preview ? (
-                              preview.type === 'line'
-                                ? <LineCanvas dna={preview.dna as LineDNA} />
-                                : <MosaicCanvas dna={preview.dna as MosaicDNA} />
-                            ) : (
-                              <div className={`w-full h-full flex items-center justify-center ${
-                                thread.type === 'line'
-                                  ? 'bg-gradient-to-br from-purple-950/60 to-indigo-950/60'
-                                  : 'bg-gradient-to-br from-emerald-950/60 to-teal-950/60'
-                              }`}>
-                                <span className={`text-[9px] font-bold uppercase tracking-widest opacity-50 ${
-                                  thread.type === 'line' ? 'text-purple-300' : 'text-emerald-300'
-                                }`}>{thread.type === 'line' ? 'LINE' : 'MOSAIC'}</span>
-                              </div>
-                            )}
-                            {/* Active indicator */}
-                            {isActive && (
-                              <div className="absolute top-1 left-1 w-1.5 h-1.5 rounded-full bg-purple-400 shadow-[0_0_6px_rgba(168,85,247,0.9)]" />
-                            )}
-                            {/* Gen badge */}
-                            <span className="absolute bottom-1 left-1 px-1 py-0.5 rounded bg-black/70 text-[7px] text-purple-300 font-bold border border-purple-500/20">
-                              G{thread.generation}
-                            </span>
-                          </button>
-
-                          {/* Footer: name + actions */}
-                          <div className={`flex items-center justify-between px-1.5 py-1 ${
-                            isActive ? 'bg-purple-950/50' : 'bg-gray-950/80'
-                          }`}>
-                            <span className="text-[9px] font-bold text-gray-200 truncate flex-1 min-w-0">{thread.name}</span>
-                            <div className="flex items-center gap-0.5 flex-shrink-0 ml-1">
-                              {thread.creator_session_id === sessionId && (
-                                <button
-                                  onClick={(e) => { playClick(); e.stopPropagation(); handleDeleteThread(thread.id); }}
-                                  className="p-0.5 text-gray-600 hover:text-rose-400 transition-colors"
-                                >
-                                  <Trash2 className="w-3 h-3" />
-                                </button>
-                              )}
-                              <button
-                                onClick={(e) => { playClick(); e.stopPropagation(); toggleSaveThread(thread.id); }}
-                                className={`p-0.5 transition-colors ${
-                                  isSaved ? 'text-purple-400' : 'text-gray-600 hover:text-gray-400'
-                                }`}
-                              >
-                                <Star className={`w-3 h-3 ${isSaved ? 'fill-purple-400' : ''}`} />
-                              </button>
-                            </div>
-                          </div>
-                        </div>
+                    {(() => {
+                      const filtered = threads.filter(thread =>
+                        thread.name.toLowerCase().includes(threadSearchQuery.toLowerCase())
                       );
-                    })}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex-1 flex flex-col min-h-0">
-                    {/* Sub-tab selector */}
-                    <div className="flex gap-1 mb-3 p-0.5 bg-gray-950/60 border border-gray-900 rounded-lg">
-                      <button
-                        onClick={() => {
-                          playClick();
-                          setSavedSubTab('threads');
-                        }}
-                        className={`flex-1 py-1 text-[9px] font-bold uppercase tracking-wider rounded-md transition-all ${
-                          savedSubTab === 'threads'
-                            ? 'bg-purple-600/20 text-purple-300 border border-purple-500/10'
-                            : 'text-gray-500 hover:text-gray-300 border border-transparent'
-                        }`}
-                      >
-                        プロジェクト ({threads.filter(t => savedThreadIds.includes(t.id)).length})
-                      </button>
-                      <button
-                        onClick={() => {
-                          playClick();
-                          setSavedSubTab('cards');
-                        }}
-                        className={`flex-1 py-1 text-[9px] font-bold uppercase tracking-wider rounded-md transition-all ${
-                          savedSubTab === 'cards'
-                            ? 'bg-purple-600/20 text-purple-300 border border-purple-500/10'
-                            : 'text-gray-500 hover:text-gray-300 border border-transparent'
-                        }`}
-                      >
-                        カード ({savedCards.length}/{CARD_FAVORITES_LIMIT})
-                      </button>
-                    </div>
-
-                    {savedSubTab === 'threads' ? (
-                      <div className="flex-1 overflow-y-auto pr-1 max-h-[260px] scrollbar-thin scrollbar-thumb-purple-900 scrollbar-track-transparent">
-                        {threads.filter(t => savedThreadIds.includes(t.id)).length === 0 ? (
+                      if (filtered.length === 0) {
+                        return (
                           <div className="text-center py-12 text-gray-600 text-[9px] uppercase tracking-wider font-semibold">
-                            保存したプロジェクトはありません
+                            {threadSearchQuery
+                              ? (lang === 'ja' ? '一致するプロジェクトはありません' : 'No matching projects found')
+                              : (lang === 'ja' ? 'プロジェクトはありません' : 'No projects found')}
                           </div>
-                        ) : (
-                          <div className="grid grid-cols-2 gap-2">
-                          {threads.filter(t => savedThreadIds.includes(t.id)).map(thread => {
+                        );
+                      }
+                      return (
+                        <div className="grid grid-cols-2 gap-2">
+                          {filtered.map(thread => {
                             const isActive = thread.id === activeThreadId;
+                            const isSaved = savedThreadIds.includes(thread.id);
                             const preview = threadPreviews[thread.id];
                             return (
                               <div
@@ -1924,8 +2492,13 @@ export default function App() {
                                     : 'border-gray-800 hover:border-purple-500/30'
                                 }`}
                               >
+                                {/* Preview thumbnail */}
                                 <button
-                                  onClick={() => { playClick(); setActiveThreadId(thread.id); setView('swipe'); }}
+                                  onClick={() => {
+                                    playClick();
+                                    setActiveThreadId(thread.id);
+                                    setView('swipe');
+                                  }}
                                   className="w-full aspect-square bg-black overflow-hidden flex items-center justify-center relative"
                                 >
                                   {preview ? (
@@ -1943,35 +2516,178 @@ export default function App() {
                                       }`}>{thread.type === 'line' ? 'LINE' : 'MOSAIC'}</span>
                                     </div>
                                   )}
-                                  {isActive && <div className="absolute top-1 left-1 w-1.5 h-1.5 rounded-full bg-purple-400 shadow-[0_0_6px_rgba(168,85,247,0.9)]" />}
-                                  <span className="absolute bottom-1 left-1 px-1 py-0.5 rounded bg-black/70 text-[7px] text-purple-300 font-bold border border-purple-500/20">G{thread.generation}</span>
+                                  {/* Active indicator */}
+                                  {isActive && (
+                                    <div className="absolute top-1 left-1 w-1.5 h-1.5 rounded-full bg-purple-400 shadow-[0_0_6px_rgba(168,85,247,0.9)]" />
+                                  )}
+                                  {/* Gen badge */}
+                                  <span className="absolute bottom-1 left-1 px-1 py-0.5 rounded bg-black/70 text-[7px] text-purple-300 font-bold border border-purple-500/20">
+                                    G{thread.generation}
+                                  </span>
                                 </button>
+
+                                {/* Footer: name + actions */}
                                 <div className={`flex items-center justify-between px-1.5 py-1 ${
                                   isActive ? 'bg-purple-950/50' : 'bg-gray-950/80'
                                 }`}>
                                   <span className="text-[9px] font-bold text-gray-200 truncate flex-1 min-w-0">{thread.name}</span>
                                   <div className="flex items-center gap-0.5 flex-shrink-0 ml-1">
                                     {thread.creator_session_id === sessionId && (
-                                      <button onClick={(e) => { playClick(); e.stopPropagation(); handleDeleteThread(thread.id); }} className="p-0.5 text-gray-600 hover:text-rose-400 transition-colors">
-                                        <Trash2 className="w-3 h-3" />
-                                      </button>
+                                      <>
+                                        <button
+                                          onClick={(e) => { playClick(); e.stopPropagation(); handleRenameThread(thread.id, thread.name); }}
+                                          className="p-0.5 text-gray-600 hover:text-purple-400 transition-colors"
+                                          title={lang === 'en' ? 'Rename Project' : 'プロジェクト名を変更'}
+                                        >
+                                          <Pencil className="w-3 h-3" />
+                                        </button>
+                                        <button
+                                          onClick={(e) => { playClick(); e.stopPropagation(); handleDeleteThread(thread.id); }}
+                                          className="p-0.5 text-gray-600 hover:text-rose-400 transition-colors"
+                                          title={lang === 'en' ? 'Delete Project' : 'プロジェクトを削除'}
+                                        >
+                                          <Trash2 className="w-3 h-3" />
+                                        </button>
+                                      </>
                                     )}
-                                    <button onClick={(e) => { playClick(); e.stopPropagation(); toggleSaveThread(thread.id); }} className="p-0.5 text-purple-400 hover:text-purple-300 transition-colors">
-                                      <Star className="w-3 h-3 fill-purple-400" />
+                                    <button
+                                      onClick={(e) => { playClick(); e.stopPropagation(); toggleSaveThread(thread.id); }}
+                                      className={`p-0.5 transition-colors ${
+                                        isSaved ? 'text-purple-400' : 'text-gray-600 hover:text-gray-400'
+                                      }`}
+                                    >
+                                      <Star className={`w-3 h-3 ${isSaved ? 'fill-purple-400' : ''}`} />
                                     </button>
                                   </div>
                                 </div>
                               </div>
                             );
                           })}
-                          </div>
-                        )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                ) : (
+                  <div className="flex-1 flex flex-col min-h-0">
+                    {/* Sub-tab selector */}
+                    <div className="flex gap-1 mb-3 p-0.5 bg-gray-950/60 border border-gray-900 rounded-lg">
+                      <button
+                        onClick={() => {
+                          playClick();
+                          setSavedSubTab('threads');
+                        }}
+                        className={`flex-1 py-1 text-[9px] font-bold uppercase tracking-wider rounded-md transition-all ${
+                          savedSubTab === 'threads'
+                            ? 'bg-purple-600/20 text-purple-300 border border-purple-500/10'
+                            : 'text-gray-500 hover:text-gray-300 border border-transparent'
+                        }`}
+                      >
+                        {lang === 'ja' ? 'プロジェクト' : 'Projects'} ({threads.filter(t => savedThreadIds.includes(t.id)).length})
+                      </button>
+                      <button
+                        onClick={() => {
+                          playClick();
+                          setSavedSubTab('cards');
+                        }}
+                        className={`flex-1 py-1 text-[9px] font-bold uppercase tracking-wider rounded-md transition-all ${
+                          savedSubTab === 'cards'
+                            ? 'bg-purple-600/20 text-purple-300 border border-purple-500/10'
+                            : 'text-gray-500 hover:text-gray-300 border border-transparent'
+                        }`}
+                      >
+                        {lang === 'ja' ? 'カード' : 'Cards'} ({savedCards.length}/{CARD_FAVORITES_LIMIT})
+                      </button>
+                    </div>
+
+                    {savedSubTab === 'threads' ? (
+                      <div className="flex-1 overflow-y-auto pr-1 max-h-[260px] scrollbar-thin scrollbar-thumb-purple-900 scrollbar-track-transparent">
+                        {(() => {
+                          const filteredSaved = threads
+                            .filter(t => savedThreadIds.includes(t.id))
+                            .filter(thread =>
+                              thread.name.toLowerCase().includes(threadSearchQuery.toLowerCase())
+                            );
+                          if (filteredSaved.length === 0) {
+                            return (
+                              <div className="text-center py-12 text-gray-600 text-[9px] uppercase tracking-wider font-semibold">
+                                {threadSearchQuery
+                                  ? (lang === 'ja' ? '一致するプロジェクトはありません' : 'No matching projects found')
+                                  : (lang === 'ja' ? '保存したプロジェクトはありません' : 'No saved projects found')}
+                              </div>
+                            );
+                          }
+                          return (
+                            <div className="grid grid-cols-2 gap-2">
+                              {filteredSaved.map(thread => {
+                                const isActive = thread.id === activeThreadId;
+                                const preview = threadPreviews[thread.id];
+                                return (
+                                  <div
+                                    key={thread.id}
+                                    className={`group relative flex flex-col rounded-xl border overflow-hidden cursor-pointer transition-all ${
+                                      isActive
+                                        ? 'border-purple-500/60 shadow-[0_0_12px_rgba(168,85,247,0.25)]'
+                                        : 'border-gray-800 hover:border-purple-500/30'
+                                    }`}
+                                  >
+                                    <button
+                                      onClick={() => { playClick(); setActiveThreadId(thread.id); setView('swipe'); }}
+                                      className="w-full aspect-square bg-black overflow-hidden flex items-center justify-center relative"
+                                    >
+                                      {preview ? (
+                                        preview.type === 'line'
+                                          ? <LineCanvas dna={preview.dna as LineDNA} />
+                                          : <MosaicCanvas dna={preview.dna as MosaicDNA} />
+                                      ) : (
+                                        <div className={`w-full h-full flex items-center justify-center ${
+                                          thread.type === 'line'
+                                            ? 'bg-gradient-to-br from-purple-950/60 to-indigo-950/60'
+                                            : 'bg-gradient-to-br from-emerald-950/60 to-teal-950/60'
+                                        }`}>
+                                          <span className={`text-[9px] font-bold uppercase tracking-widest opacity-50 ${
+                                            thread.type === 'line' ? 'text-purple-300' : 'text-emerald-300'
+                                          }`}>{thread.type === 'line' ? 'LINE' : 'MOSAIC'}</span>
+                                        </div>
+                                      )}
+                                      {isActive && <div className="absolute top-1 left-1 w-1.5 h-1.5 rounded-full bg-purple-400 shadow-[0_0_6px_rgba(168,85,247,0.9)]" />}
+                                      <span className="absolute bottom-1 left-1 px-1 py-0.5 rounded bg-black/70 text-[7px] text-purple-300 font-bold border border-purple-500/20">G{thread.generation}</span>
+                                    </button>
+                                    <div className={`flex items-center justify-between px-1.5 py-1 ${
+                                      isActive ? 'bg-purple-950/50' : 'bg-gray-950/80'
+                                    }`}>
+                                      <span className="text-[9px] font-bold text-gray-200 truncate flex-1 min-w-0">{thread.name}</span>
+                                      <div className="flex items-center gap-0.5 flex-shrink-0 ml-1">
+                                        {thread.creator_session_id === sessionId && (
+                                          <>
+                                            <button
+                                              onClick={(e) => { playClick(); e.stopPropagation(); handleRenameThread(thread.id, thread.name); }}
+                                              className="p-0.5 text-gray-600 hover:text-purple-400 transition-colors"
+                                              title={lang === 'en' ? 'Rename Project' : 'プロジェクト名を変更'}
+                                            >
+                                              <Pencil className="w-3 h-3" />
+                                            </button>
+                                            <button onClick={(e) => { playClick(); e.stopPropagation(); handleDeleteThread(thread.id); }} className="p-0.5 text-gray-600 hover:text-rose-400 transition-colors" title={lang === 'en' ? 'Delete Project' : 'プロジェクトを削除'}>
+                                              <Trash2 className="w-3 h-3" />
+                                            </button>
+                                          </>
+                                        )}
+                                        <button onClick={(e) => { playClick(); e.stopPropagation(); toggleSaveThread(thread.id); }} className="p-0.5 text-purple-400 hover:text-purple-300 transition-colors">
+                                          <Star className="w-3 h-3 fill-purple-400" />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
+                        })()}
                       </div>
                     ) : (
                       <div className="flex-1 overflow-y-auto pr-1 max-h-[260px] scrollbar-thin scrollbar-thumb-purple-900 scrollbar-track-transparent">
                         {savedCards.length === 0 ? (
                           <div className="text-center py-12 text-gray-600 text-[9px] uppercase tracking-wider font-semibold">
-                            保存した画像はありません
+                            {lang === 'ja' ? '保存した画像はありません' : 'No saved cards found'}
                           </div>
                         ) : (
                           <div className="grid grid-cols-2 gap-3">
@@ -2023,84 +2739,158 @@ export default function App() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
               transition={{ duration: 0.15 }}
-              className="w-full max-w-[400px] flex flex-col p-5 bg-[#090a10]/80 border border-gray-900 rounded-3xl shadow-2xl backdrop-blur-md min-h-[420px] relative overflow-hidden"
+              className="w-full max-w-[500px] flex flex-col p-5 bg-[#090a10]/95 border border-purple-500/10 rounded-3xl shadow-2xl backdrop-blur-md max-h-[85vh] relative overflow-hidden"
             >
               {/* Background gradient flare */}
               <div className="absolute top-[-50%] left-[-50%] w-[100%] h-[100%] rounded-full bg-purple-500/5 blur-[80px] pointer-events-none" />
 
-              <div className="flex items-center justify-between border-b border-gray-900 pb-3.5 mb-5 relative z-10">
+              {/* Header with Title and Balance / Close controls */}
+              <div className="flex items-center justify-between border-b border-gray-800/60 pb-3 mb-4 relative z-10 flex-shrink-0">
                 <div className="flex items-center gap-2">
-                  <ShoppingCart className="w-4 h-4 text-purple-400" />
-                  <h2 className="text-xs font-bold text-gray-200 uppercase tracking-wider text-left">ソウルショップ</h2>
+                  <ShoppingCart className="w-5 h-5 text-purple-400" />
+                  <h2 className="text-sm font-bold text-gray-100 uppercase tracking-wider">
+                    {lang === 'en' ? 'Soul Shop' : 'ソウルショップ'}
+                  </h2>
                 </div>
-                <button
-                  onClick={() => {
-                    playClick();
-                    setView('swipe');
-                  }}
-                  className="p-1.5 text-gray-500 hover:text-gray-300 rounded-lg hover:bg-gray-900 transition-colors"
-                  title="閉じる"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-2.5">
+                  {/* Current Souls Display with '+' link */}
+                  <div className="flex items-center gap-1.5 pl-2.5 pr-1 py-0.5 bg-purple-950/40 border border-purple-500/20 rounded-full select-none text-[11px] font-bold text-yellow-300 shadow-inner">
+                    <span><BlueFire /> {staminaData.souls}</span>
+                    <button
+                      onClick={() => {
+                        playClick();
+                        setShowBuySoulsModal(true);
+                      }}
+                      className="w-4 h-4 rounded-full bg-purple-600 hover:bg-purple-500 text-white flex items-center justify-center font-black text-xs transition-transform hover:scale-105 active:scale-95 cursor-pointer"
+                      title={lang === 'en' ? 'Buy Souls' : 'ソウルを購入する'}
+                    >
+                      +
+                    </button>
+                  </div>
+                  {/* Close button */}
+                  <button
+                    onClick={() => {
+                      playClick();
+                      setView('swipe');
+                    }}
+                    className="p-1 text-gray-400 hover:text-gray-200 rounded-full hover:bg-gray-800 transition-colors bg-gray-900/40 border border-gray-800"
+                    title={lang === 'en' ? 'Close' : '閉じる'}
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
 
-              {/* Current Souls Display */}
-              <div className="mb-5 p-4 rounded-xl bg-gradient-to-br from-purple-950/30 to-indigo-950/30 border border-purple-500/10 flex flex-col items-center justify-center gap-1 shadow-inner relative z-10">
-                <span className="text-[9px] uppercase tracking-wider text-purple-400 font-bold">現在の所持ソウル</span>
-                <span className="text-2xl font-black text-yellow-300 drop-shadow-[0_0_8px_rgba(253,224,71,0.2)]">
-                  🔮 {staminaData.souls} <span className="text-xs font-semibold text-gray-400">Soul</span>
-                </span>
-              </div>
-
-              {/* Shop Items Grid */}
-              <div className="space-y-3 relative z-10 flex-1 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-purple-900 scrollbar-track-transparent">
-                {/* Item 1: Recover Stamina */}
-                <div className="p-3 bg-gray-950/40 border border-gray-900 rounded-xl flex items-center justify-between gap-4">
-                  <div className="text-left min-w-0">
-                    <h4 className="text-xs font-bold text-gray-200">スタミナ10回復薬</h4>
-                    <p className="text-[9px] text-gray-500 mt-0.5">スタミナを10回復します（上限を超えません）</p>
-                    <span className="text-[10px] text-yellow-300/80 font-bold block mt-1">価格: 300 Soul</span>
+              {/* Main Scrollable Content */}
+              <div className="relative z-10 flex-1 overflow-y-auto pr-1.5 scrollbar-thin scrollbar-thumb-purple-900 scrollbar-track-transparent space-y-4">
+                
+                {/* Section Title: Items */}
+                <div className="text-left">
+                  <div className="flex items-center gap-1.5 text-purple-400 font-extrabold text-[11px] tracking-wider uppercase">
+                    <Diamond className="w-3 h-3 text-purple-400" />
+                    <span>{lang === 'en' ? 'Exchanged Items' : '交換アイテム'}</span>
                   </div>
-                  <button
-                    onClick={buyStaminaRecovery}
-                    disabled={staminaData.souls < 300 || staminaData.stamina >= staminaData.maxStamina}
-                    className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 disabled:bg-gray-900 disabled:text-gray-600 text-white rounded-lg text-[10px] font-bold transition-all shadow-md flex-shrink-0"
-                  >
-                    交換する
-                  </button>
+                  <p className="text-[9.5px] text-gray-500 mt-0.5">
+                    {lang === 'en' ? 'Spend Souls to recover swipe stamina or expand your stamina capacity.' : 'ソウルを消費してスワイプスタミナの回復や上限の拡張を行えます'}
+                  </p>
                 </div>
 
-                {/* Item 2: Upgrade Max Stamina */}
-                <div className="p-3 bg-gray-950/40 border border-gray-900 rounded-xl flex items-center justify-between gap-4">
-                  <div className="text-left min-w-0">
-                    <h4 className="text-xs font-bold text-gray-200">スタミナ上限+5追加</h4>
-                    <p className="text-[9px] text-gray-500 mt-0.5">最大スタミナ上限を5増やします（現在値も5増えます）</p>
-                    <span className="text-[10px] text-yellow-300/80 font-bold block mt-1">価格: 1000 Soul</span>
+                {/* Shop Items Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  {/* Item 1: Recover Stamina */}
+                  <div className="p-4 bg-gray-950/40 border border-gray-900 rounded-2xl flex flex-col justify-between text-center relative overflow-hidden group hover:border-purple-500/20 transition-all hover:translate-y-[-2px] shadow-lg">
+                    <div>
+                      <Battery className="w-9 h-9 text-purple-400 mx-auto mb-2" />
+                      <h4 className="text-xs font-extrabold text-gray-200">
+                        {lang === 'en' ? 'Stamina +10 Potion' : 'スタミナ10回復薬'}
+                      </h4>
+                      <p className="text-[9px] text-gray-500 leading-snug mt-1 mx-auto max-w-[150px]">
+                        {lang === 'en' ? 'Recovers 10 stamina (does not exceed maximum limit)' : 'スタミナを10回復します（上限を超えません）'}
+                      </p>
+                    </div>
+                    <div>
+                      {/* Quantity Selector */}
+                      <div className="flex items-center justify-center gap-2.5 my-2.5">
+                        <button
+                          onClick={() => setStaminaRecoveryQty(Math.max(1, staminaRecoveryQty - 1))}
+                          disabled={staminaRecoveryQty <= 1}
+                          className="w-6 h-6 rounded-full bg-gray-900 border border-gray-800 text-gray-400 hover:text-white disabled:opacity-30 disabled:hover:text-gray-400 flex items-center justify-center font-bold text-xs select-none transition-colors"
+                        >
+                          -
+                        </button>
+                        <div className="w-8 text-center text-xs font-black text-gray-200 bg-gray-950/60 border border-gray-900/60 py-0.5 rounded-lg">
+                          {staminaRecoveryQty}
+                        </div>
+                        <button
+                          onClick={() => setStaminaRecoveryQty(staminaRecoveryQty + 1)}
+                          disabled={staminaData.souls < 300 * (staminaRecoveryQty + 1)}
+                          className="w-6 h-6 rounded-full bg-gray-900 border border-gray-800 text-gray-400 hover:text-white disabled:opacity-30 disabled:hover:text-gray-400 flex items-center justify-center font-bold text-xs select-none transition-colors"
+                        >
+                          +
+                        </button>
+                      </div>
+                      {/* Purchase Button */}
+                      <button
+                        onClick={() => {
+                          playClick();
+                          buyStaminaRecovery(staminaRecoveryQty);
+                          setStaminaRecoveryQty(1);
+                        }}
+                        disabled={staminaData.souls < 300 * staminaRecoveryQty || staminaData.stamina >= staminaData.maxStamina}
+                        className="w-full py-1.5 bg-purple-600 hover:bg-purple-500 disabled:bg-gray-900 disabled:text-gray-600 text-white rounded-full text-[10px] font-bold transition-all shadow-md active:scale-[0.98]"
+                      >
+                        <BlueFire /> {300 * staminaRecoveryQty} Soul
+                      </button>
+                    </div>
                   </div>
-                  <button
-                    onClick={buyMaxStaminaUpgrade}
-                    disabled={staminaData.souls < 1000}
-                    className="px-3 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:from-gray-900 disabled:to-gray-900 disabled:text-gray-600 text-white rounded-lg text-[10px] font-bold transition-all shadow-md flex-shrink-0"
-                  >
-                    交換する
-                  </button>
-                </div>
 
-                {/* Item 3: Ad-Free Pass */}
-                <div className="p-3 bg-gray-950/40 border border-gray-900 rounded-xl flex items-center justify-between gap-4">
-                  <div className="text-left min-w-0">
-                    <h4 className="text-xs font-bold text-gray-200">広告非表示パス (Ad-Free)</h4>
-                    <p className="text-[9px] text-gray-500 mt-0.5">画面下部の広告バナーを永久に非表示にします</p>
-                    <span className="text-[10px] text-yellow-300/80 font-bold block mt-1">価格: 150 Soul</span>
+                  {/* Item 2: Upgrade Max Stamina */}
+                  <div className="p-4 bg-gray-950/40 border border-gray-900 rounded-2xl flex flex-col justify-between text-center relative overflow-hidden group hover:border-purple-500/20 transition-all hover:translate-y-[-2px] shadow-lg">
+                    <div>
+                      <ArrowUpCircle className="w-9 h-9 text-indigo-400 mx-auto mb-2" />
+                      <h4 className="text-xs font-extrabold text-gray-200">
+                        {lang === 'en' ? 'Max Stamina +5' : 'スタミナ上限+5追加'}
+                      </h4>
+                      <p className="text-[9px] text-gray-500 leading-snug mt-1 mx-auto max-w-[150px]">
+                        {lang === 'en' ? 'Increases maximum stamina by 5 (also adds 5 to current stamina)' : '最大スタミナ上限を5増やします（現在値も5増えます）'}
+                      </p>
+                    </div>
+                    <div>
+                      {/* Quantity Selector */}
+                      <div className="flex items-center justify-center gap-2.5 my-2.5">
+                        <button
+                          onClick={() => setMaxStaminaUpgradeQty(Math.max(1, maxStaminaUpgradeQty - 1))}
+                          disabled={maxStaminaUpgradeQty <= 1}
+                          className="w-6 h-6 rounded-full bg-gray-900 border border-gray-800 text-gray-400 hover:text-white disabled:opacity-30 disabled:hover:text-gray-400 flex items-center justify-center font-bold text-xs select-none transition-colors"
+                        >
+                          -
+                        </button>
+                        <div className="w-8 text-center text-xs font-black text-gray-200 bg-gray-950/60 border border-gray-900/60 py-0.5 rounded-lg">
+                          {maxStaminaUpgradeQty}
+                        </div>
+                        <button
+                          onClick={() => setMaxStaminaUpgradeQty(maxStaminaUpgradeQty + 1)}
+                          disabled={staminaData.souls < 1000 * (maxStaminaUpgradeQty + 1)}
+                          className="w-6 h-6 rounded-full bg-gray-900 border border-gray-800 text-gray-400 hover:text-white disabled:opacity-30 disabled:hover:text-gray-400 flex items-center justify-center font-bold text-xs select-none transition-colors"
+                        >
+                          +
+                        </button>
+                      </div>
+                      {/* Purchase Button */}
+                      <button
+                        onClick={() => {
+                          playClick();
+                          buyMaxStaminaUpgrade(maxStaminaUpgradeQty);
+                          setMaxStaminaUpgradeQty(1);
+                        }}
+                        disabled={staminaData.souls < 1000 * maxStaminaUpgradeQty}
+                        className="w-full py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:from-gray-900 disabled:to-gray-900 disabled:text-gray-600 text-white rounded-full text-[10px] font-bold transition-all shadow-md active:scale-[0.98]"
+                      >
+                        <BlueFire /> {1000 * maxStaminaUpgradeQty} Soul
+                      </button>
+                    </div>
                   </div>
-                  <button
-                    onClick={buyAdFreePass}
-                    disabled={staminaData.souls < 150 || staminaData.isAdFree}
-                    className="px-3 py-1.5 bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 disabled:from-gray-900 disabled:to-gray-900 disabled:text-gray-600 text-white rounded-lg text-[10px] font-bold transition-all shadow-md flex-shrink-0"
-                  >
-                    {staminaData.isAdFree ? '購入済み' : '交換する'}
-                  </button>
+
                 </div>
               </div>
             </motion.div>
@@ -2113,6 +2903,20 @@ export default function App() {
         
         {/* Invisible/Compact Turnstile Widget container */}
         <div id="turnstile-container" className="absolute pointer-events-none opacity-0" />
+
+        {staminaData.outs > 0 && !staminaData.isAdFree && (
+          <div className="w-full flex items-center justify-between gap-1.5 py-1 px-3 bg-red-950/20 border border-red-500/10 rounded-lg text-[9px] text-red-400 font-extrabold tracking-widest uppercase mb-1">
+            <div className="flex items-center gap-1">
+              <ShieldAlert className="w-3 h-3 text-red-400/90 animate-pulse" />
+              <span>OUTS: {staminaData.outs}/3</span>
+            </div>
+            <span className="text-[7.5px] text-gray-500 font-medium normal-case">
+              {lang === 'en'
+                ? `(${100 - staminaData.swipesSinceLastOutRecovery} swipes left to recover)`
+                : `(回復まであと ${100 - staminaData.swipesSinceLastOutRecovery} スワイプ)`}
+            </span>
+          </div>
+        )}
 
         {/* Flat 3-Column Stats Bar */}
         <div className="w-full border-t border-gray-900/60 pt-1.5 flex flex-col gap-2 text-xs backdrop-blur-md">
@@ -2128,9 +2932,9 @@ export default function App() {
             <div className="flex items-center justify-center gap-1.5">
               <span className="text-gray-500 text-[8px] font-extrabold tracking-widest">swip:</span>
               <span className="text-gray-300 font-bold text-[10px] whitespace-nowrap">
-                {staminaData.stamina}/{staminaData.maxStamina}
+                {staminaData.maxStamina >= 9999 ? '∞' : `${staminaData.stamina}/${staminaData.maxStamina}`}
               </span>
-              {staminaData.stamina < staminaData.maxStamina && (
+              {staminaData.stamina < staminaData.maxStamina && staminaData.maxStamina < 9999 && (
                 <span className="text-[7px] text-gray-500 font-medium lowercase tracking-normal flex-shrink-0">
                   +{nextRecoverySeconds}s
                 </span>
@@ -2141,29 +2945,8 @@ export default function App() {
 
         {/* Ad Section */}
         {!staminaData.isAdFree && (
-          <div className="w-full max-w-[380px] h-[50px] bg-gradient-to-r from-gray-950 to-gray-900 border border-gray-900 rounded-xl overflow-hidden flex items-center justify-between px-3 relative group">
-            {/* Small 'Ad' badge */}
-            <span className="absolute top-1 left-1.5 bg-gray-800/80 text-[6px] text-gray-500 font-bold px-1 py-0.2 rounded border border-gray-700/30 uppercase tracking-widest">
-              Ad
-            </span>
-            <div className="flex items-center gap-2 pl-3">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-pink-500 via-purple-600 to-indigo-500 flex items-center justify-center flex-shrink-0 shadow-md">
-                <Sparkles className="w-4 h-4 text-white animate-pulse" />
-              </div>
-              <div className="text-left min-w-0">
-                <h4 className="text-[10px] font-extrabold text-gray-200 tracking-wide truncate">GenX Premium Engine</h4>
-                <p className="text-[8px] text-gray-500 truncate">Unlock unlimited mutation pools & 10x souls!</p>
-              </div>
-            </div>
-            <button 
-              onClick={() => setView('shop')}
-              className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-md text-[8px] font-black uppercase tracking-wider transition-colors shadow-sm whitespace-nowrap"
-            >
-              Get
-            </button>
-          </div>
+          <AdBanner country={country} lang={lang} />
         )}
-
       </footer>
 
 
@@ -2240,7 +3023,7 @@ export default function App() {
                             Gen {specimen.generation}
                           </span>
                           <span className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded bg-black/60 text-[6px] text-gray-400 font-bold border border-gray-800/50">
-                            タップで詳細
+                            {lang === 'en' ? 'Tap for Details' : 'タップで詳細'}
                           </span>
                         </div>
                         <span className="text-[7px] font-bold text-gray-500 uppercase tracking-widest text-center mt-0.5">
@@ -2275,8 +3058,12 @@ export default function App() {
 
               <div className="flex items-center justify-between mb-6 relative z-10">
                 <div>
-                  <h3 className="text-sm font-bold tracking-wider text-purple-400 uppercase">新規プロジェクトを作成</h3>
-                  <span className="text-[9px] text-yellow-300 font-bold block mt-0.5">所持ソウル: 🔮 {staminaData.souls} Soul</span>
+                  <h3 className="text-sm font-bold tracking-wider text-purple-400 uppercase">
+                    {lang === 'en' ? 'Create New Project' : '新規プロジェクトを作成'}
+                  </h3>
+                  <span className="text-[9px] text-yellow-300 font-bold block mt-0.5">
+                    {lang === 'en' ? 'Your Souls: ' : '所持ソウル: '}<BlueFire /> {staminaData.souls} {lang === 'en' ? 'Souls' : 'Soul'}
+                  </span>
                 </div>
                 <button
                   onClick={() => setShowCreateModal(false)}
@@ -2289,13 +3076,13 @@ export default function App() {
               <form onSubmit={handleCreateThread} className="space-y-4 relative z-10">
                 <div>
                   <label className="block text-[10px] uppercase tracking-wider font-bold text-gray-500 mb-1.5">
-                    プロジェクト名
+                    {lang === 'en' ? 'Project Name' : 'プロジェクト名'}
                   </label>
                   <input
                     type="text"
                     required
                     maxLength={30}
-                    placeholder="例: サイバー幾何学, サイバーパンクガール"
+                    placeholder={lang === 'en' ? 'e.g., Cyber Geometry, Cyberpunk Girl' : '例: サイバー幾何学, サイバーパンクガール'}
                     value={newThreadName}
                     onChange={(e) => setNewThreadName(e.target.value)}
                     className="w-full text-xs bg-gray-950 border border-gray-900 rounded-xl px-4 py-3 text-gray-200 focus:outline-none focus:border-purple-500/50 transition-colors"
@@ -2304,7 +3091,7 @@ export default function App() {
 
                 <div>
                   <label className="block text-[10px] uppercase tracking-wider font-bold text-gray-500 mb-1.5">
-                    スタイル / 突然変異ベース
+                    {lang === 'en' ? 'Style / Mutation Base' : 'スタイル / 突然変異ベース'}
                   </label>
                   <div className="grid grid-cols-2 gap-2">
                     <button
@@ -2317,7 +3104,7 @@ export default function App() {
                       }`}
                     >
                       <span className="w-2 h-2 rounded-full bg-purple-400" />
-                      ライン
+                      {lang === 'en' ? 'Line' : 'ライン'}
                       <span className="text-[9px] text-gray-500 font-bold block mt-0.5">200 Soul</span>
                     </button>
                     <button
@@ -2330,7 +3117,7 @@ export default function App() {
                       }`}
                     >
                       <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                      モザイク
+                      {lang === 'en' ? 'Mosaic' : 'モザイク'}
                       <span className="text-[9px] text-gray-500 font-bold block mt-0.5">500 Soul</span>
                     </button>
                   </div>
@@ -2343,7 +3130,9 @@ export default function App() {
                     className="w-full py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-purple-600/20 disabled:opacity-50"
                   >
                     {creatingThread && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                    プロジェクトを作成 ({newThreadType === 'line' ? '200' : '500'} Soul)
+                    {lang === 'en' 
+                      ? `Create Project (${newThreadType === 'line' ? '200' : '500'} Souls)`
+                      : `プロジェクトを作成 (${newThreadType === 'line' ? '200' : '500'} Soul)`}
                   </button>
                 </div>
               </form>
@@ -2374,10 +3163,14 @@ export default function App() {
               <div className="flex items-center justify-between relative z-10 border-b border-gray-900 pb-3">
                 <div className="text-left min-w-0">
                   <span className="text-[8px] uppercase tracking-widest text-purple-500 font-bold block">
-                    {selectedCard.threadName ? `プロジェクト: ${selectedCard.threadName}` : '画像詳細'}
+                    {selectedCard.threadName 
+                      ? (lang === 'en' ? `Project: ${selectedCard.threadName}` : `プロジェクト: ${selectedCard.threadName}`)
+                      : (lang === 'en' ? 'Card Details' : '画像詳細')}
                   </span>
                   <h3 className="text-xs font-bold text-gray-200 truncate">
-                    第 {selectedCard.generation} 世代 / ID: {selectedCard.id.replace('line_', '').replace('mosaic_', '').substring(0, 8)}...
+                    {lang === 'en' 
+                      ? `Gen ${selectedCard.generation} / ID: ${selectedCard.id.replace('line_', '').replace('mosaic_', '').substring(0, 8)}...`
+                      : `第 ${selectedCard.generation} 世代 / ID: ${selectedCard.id.replace('line_', '').replace('mosaic_', '').substring(0, 8)}...`}
                   </h3>
                 </div>
                 <button
@@ -2404,7 +3197,9 @@ export default function App() {
                 
                 {/* Micro badge for order */}
                 <div className="absolute bottom-2 right-2 px-2 py-0.5 rounded bg-black/70 border border-gray-800/50 text-[7px] text-gray-400 font-semibold tracking-wider uppercase select-none">
-                  累計 {staminaData.lifetimeSwipes} 枚目の画像
+                  {lang === 'en'
+                    ? `Card #${staminaData.lifetimeSwipes} in Total`
+                    : `累計 ${staminaData.lifetimeSwipes} 枚目の画像`}
                 </div>
               </div>
 
@@ -2416,7 +3211,7 @@ export default function App() {
                   className="py-2.5 bg-gray-950/60 border border-gray-900 hover:border-purple-500/30 text-gray-200 hover:text-purple-300 rounded-xl text-[10px] font-bold transition-all flex items-center justify-center gap-1.5 shadow-md"
                 >
                   <Download className="w-3.5 h-3.5" />
-                  ダウンロード
+                  {lang === 'en' ? 'Download' : 'ダウンロード'}
                 </button>
 
                 {/* Save/Favorite Toggle */}
@@ -2432,7 +3227,9 @@ export default function App() {
                       }`}
                     >
                       <Star className={`w-3.5 h-3.5 ${isSaved ? 'fill-purple-400 text-purple-400' : ''}`} />
-                      {isSaved ? '保存解除' : 'お気に入り保存'}
+                      {isSaved 
+                        ? (lang === 'en' ? 'Remove Favorite' : '保存解除') 
+                        : (lang === 'en' ? 'Favorite Card' : 'お気に入り保存')}
                     </button>
                   );
                 })()}
@@ -2446,19 +3243,19 @@ export default function App() {
                     className="w-full py-3 bg-gradient-to-r from-purple-600/90 to-indigo-600/90 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-purple-600/10 border border-purple-500/20"
                   >
                     <GitFork className="w-4 h-4 text-purple-200 animate-pulse" />
-                    この個体から分岐して新プロジェクトを作成
+                    {lang === 'en' ? 'Fork new project from this specimen' : 'この個体から分岐して新プロジェクトを作成'}
                     <span className="text-[9px] opacity-75 font-semibold bg-black/40 px-1.5 py-0.5 rounded text-yellow-300">
-                      1000 Soul
+                      <BlueFire /> 1000 Soul
                     </span>
                   </button>
                 ) : (
                   <form onSubmit={handleForkThread} className="space-y-3 p-3 bg-gray-950/40 border border-gray-900 rounded-xl">
                     <div className="flex justify-between items-center">
                       <span className="text-[10px] uppercase tracking-wider font-extrabold text-purple-400 flex items-center gap-1">
-                        <GitFork className="w-3 h-3" /> 分岐プロジェクト作成
+                        <GitFork className="w-3 h-3" /> {lang === 'en' ? 'Create Forked Project' : '分岐プロジェクト作成'}
                       </span>
                       <span className="text-[8px] font-bold text-yellow-300 bg-yellow-950/30 border border-yellow-500/10 px-1.5 py-0.5 rounded">
-                        コスト: 1000 Soul
+                        {lang === 'en' ? 'Cost: ' : 'コスト: '}<BlueFire /> 1000 Soul
                       </span>
                     </div>
 
@@ -2466,7 +3263,7 @@ export default function App() {
                       type="text"
                       required
                       maxLength={30}
-                      placeholder="新しいプロジェクト名を入力"
+                      placeholder={lang === 'en' ? "Enter new project name" : "新しいプロジェクト名を入力"}
                       value={forkThreadName}
                       onChange={(e) => setForkThreadName(e.target.value)}
                       className="w-full text-xs bg-gray-950 border border-gray-900 rounded-lg px-3 py-2 text-gray-200 focus:outline-none focus:border-purple-500/50 transition-colors"
@@ -2478,7 +3275,7 @@ export default function App() {
                         onClick={() => setForkingMode(false)}
                         className="py-2 bg-gray-900 hover:bg-gray-800 text-gray-400 hover:text-gray-200 text-[10px] font-bold rounded-lg transition-colors"
                       >
-                        キャンセル
+                        {lang === 'en' ? 'Cancel' : 'キャンセル'}
                       </button>
                       <button
                         type="submit"
@@ -2486,12 +3283,16 @@ export default function App() {
                         className="py-2 bg-purple-600 hover:bg-purple-500 disabled:bg-gray-900 disabled:text-gray-600 text-white text-[10px] font-bold rounded-lg transition-all flex items-center justify-center gap-1 disabled:opacity-50"
                       >
                         {isForking && <RefreshCw className="w-3 h-3 animate-spin" />}
-                        {staminaData.souls < 1000 ? 'Soul不足' : '作成する'}
+                        {staminaData.souls < 1000 
+                          ? (lang === 'en' ? 'Insufficient Souls' : 'Soul不足') 
+                          : (lang === 'en' ? 'Create' : '作成する')}
                       </button>
                     </div>
                     {staminaData.souls < 1000 && (
                       <span className="text-[8px] text-rose-400 block text-center font-semibold mt-1">
-                        ※作成には1000 Soul必要です（現在: {staminaData.souls} Soul）
+                        {lang === 'en'
+                          ? `*Requires 1,000 Souls (Current: ${staminaData.souls} Souls)`
+                          : `※作成には 1000 Soul必要です（現在: ${staminaData.souls} Soul）`}
                       </span>
                     )}
                   </form>
@@ -2544,7 +3345,9 @@ export default function App() {
                   gene46 <span className="text-purple-400 font-medium">Evolution</span>
                 </h2>
                 <p className="text-xs text-gray-400 leading-relaxed max-w-[280px] mx-auto mb-8">
-                  遺伝子の螺旋を探索し、 specimen（スペックメン）の進化を進めるにはログインが必要です。
+                  {lang === 'en'
+                    ? 'Explore the gene helix and log in to continue the evolution of specimens.'
+                    : '遺伝子の螺旋を探索し、 specimen（スペックメン）の進化を進めるにはログインが必要です。'}
                 </p>
 
                 {/* Continue with Google button */}
@@ -2561,7 +3364,7 @@ export default function App() {
                     <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" fill="#FBBC05"/>
                     <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335"/>
                   </svg>
-                  Googleでログイン
+                  {lang === 'en' ? 'Sign in with Google' : 'Googleでログイン'}
                 </button>
 
                 {import.meta.env.DEV && (
@@ -2578,9 +3381,19 @@ export default function App() {
 
                 {/* Muted Terms */}
                 <p className="text-[10px] text-gray-500 leading-normal max-w-[240px] mx-auto">
-                  ログインすることで、当サービスの
-                  <a href="#" className="underline hover:text-gray-400 mx-1">利用規約</a>及び
-                  <a href="#" className="underline hover:text-gray-400 ml-1">プライバシーポリシー</a>に同意したものとみなされます。
+                  {lang === 'ja' ? (
+                    <>
+                      ログインすることで、当サービスの
+                      <a href="#" className="underline hover:text-gray-400 mx-1" onClick={(e) => { e.preventDefault(); setShowTermsModal(true); }}>利用規約</a>及び
+                      <a href="#" className="underline hover:text-gray-400 ml-1" onClick={(e) => { e.preventDefault(); setShowPrivacyModal(true); }}>プライバシーポリシー</a>に同意したものとみなされます。
+                    </>
+                  ) : (
+                    <>
+                      By logging in, you agree to our
+                      <a href="#" className="underline hover:text-gray-400 mx-1" onClick={(e) => { e.preventDefault(); setShowTermsModal(true); }}>Terms of Service</a> and
+                      <a href="#" className="underline hover:text-gray-400 ml-1" onClick={(e) => { e.preventDefault(); setShowPrivacyModal(true); }}>Privacy Policy</a>.
+                    </>
+                  )}
                 </p>
               </div>
 
@@ -2597,6 +3410,127 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* Buy Souls Modal */}
+      <AnimatePresence>
+        {showBuySoulsModal && (
+          <div 
+            onClick={() => setShowBuySoulsModal(false)}
+            className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-6 animate-fade-in"
+          >
+            <motion.div
+              onClick={(e) => e.stopPropagation()}
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="w-full max-w-[400px] bg-[#0c0e15]/95 border border-purple-500/20 rounded-3xl p-6 shadow-2xl relative overflow-hidden text-center backdrop-blur-lg flex flex-col justify-between"
+              style={{
+                boxShadow: '0 0 40px rgba(168, 85, 247, 0.15), inset 0 0 12px rgba(255, 255, 255, 0.05)',
+                fontFamily: "'Outfit', sans-serif"
+              }}
+            >
+              {/* Decorative top light flare */}
+              <div className="absolute top-[-30%] left-[20%] right-[20%] h-[40%] rounded-full bg-gradient-to-r from-purple-500/20 to-indigo-500/20 blur-2xl pointer-events-none" />
+
+              {/* Close Button */}
+              <button
+                onClick={() => setShowBuySoulsModal(false)}
+                className="absolute top-4 right-4 p-1.5 text-gray-500 hover:text-gray-300 rounded-full hover:bg-white/5 transition-all"
+                title="閉じる"
+              >
+                <X className="w-4.5 h-4.5" />
+              </button>
+
+              <div className="my-auto py-4">
+                <div className="flex items-center justify-center gap-1.5 text-purple-400 font-extrabold text-sm tracking-wider uppercase mb-2">
+                  <Sparkles className="w-5 h-5 text-purple-400" />
+                  <span>{lang === 'en' ? 'Buy Souls (Stripe)' : 'ソウルの購入（Stripe決済）'}</span>
+                </div>
+                <p className="text-xs text-gray-400 leading-relaxed max-w-[280px] mx-auto mb-6">
+                  {lang === 'en' 
+                    ? 'Directly and securely charge Souls (crystals) using credit cards or other methods (requires login).'
+                    : 'クレジットカード等を使って安全にソウル（水晶）を直接チャージできます（購入にはログインが必要です）。'}
+                </p>
+
+                {/* Stripe Item Cards in Stack */}
+                <div className="space-y-3.5">
+                  {/* Stripe Card 1 */}
+                  <div className="p-4 bg-gradient-to-tr from-purple-950/20 to-pink-950/20 border border-purple-500/10 rounded-2xl flex items-center justify-between text-left relative overflow-hidden group hover:border-purple-500/25 transition-all shadow-lg">
+                    <div className="flex items-center gap-3">
+                      <Diamond className="w-6 h-6 text-purple-300 flex-shrink-0" />
+                      <div>
+                        <h4 className="text-sm font-black text-gray-200">500 Souls</h4>
+                        <p className="text-[10px] text-gray-500 mt-0.5 leading-snug">
+                          {lang === 'en' ? 'Adds 500 Soul crystals to your account' : 'ソウル水晶を500個追加します'}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => {
+                        handleStripePurchase('souls_500');
+                        setShowBuySoulsModal(false);
+                      }}
+                      className="px-4 py-2 bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white rounded-full text-xs font-bold transition-all shadow-md active:scale-[0.98] flex-shrink-0"
+                    >
+                      $1.99
+                    </button>
+                  </div>
+
+                  {/* Stripe Card 2 */}
+                  <div className="p-4 bg-gradient-to-tr from-purple-950/20 to-indigo-950/20 border border-purple-500/10 rounded-2xl flex items-center justify-between text-left relative overflow-hidden group hover:border-purple-500/25 transition-all shadow-lg">
+                    <div className="absolute top-1 right-2 px-1.5 py-0.2 bg-purple-600 text-[8px] font-bold text-white rounded-md uppercase tracking-wider scale-90">
+                      {lang === 'en' ? 'Popular' : '人気'}
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <Diamond className="w-6 h-6 text-indigo-300 flex-shrink-0" />
+                      <div>
+                        <h4 className="text-sm font-black text-gray-200">1,500 Souls</h4>
+                        <p className="text-[10px] text-gray-500 mt-0.5 leading-snug">
+                          {lang === 'en' ? 'Adds 1,500 Soul crystals to your account' : 'ソウル水晶を1,500個追加します'}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => {
+                        handleStripePurchase('souls_1500');
+                        setShowBuySoulsModal(false);
+                      }}
+                      className="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-full text-xs font-bold transition-all shadow-md active:scale-[0.98] flex-shrink-0"
+                    >
+                      $4.99
+                    </button>
+                  </div>
+
+                  {/* Stripe Card 3 */}
+                  <div className="p-4 bg-gradient-to-tr from-purple-950/20 to-amber-950/20 border border-purple-500/10 rounded-2xl flex items-center justify-between text-left relative overflow-hidden group hover:border-purple-500/25 transition-all shadow-lg">
+                    <div className="absolute top-1 right-2 px-1.5 py-0.2 bg-amber-600 text-[8px] font-bold text-white rounded-md uppercase tracking-wider scale-90">
+                      {lang === 'en' ? 'Best Value' : 'お得'}
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <Diamond className="w-6 h-6 text-amber-300 flex-shrink-0" />
+                      <div>
+                        <h4 className="text-sm font-black text-gray-200">4,000 Souls</h4>
+                        <p className="text-[10px] text-gray-500 mt-0.5 leading-snug">
+                          {lang === 'en' ? 'Adds 4,000 Soul crystals to your account' : 'ソウル水晶を4,000個追加します'}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => {
+                        handleStripePurchase('souls_4000');
+                        setShowBuySoulsModal(false);
+                      }}
+                      className="px-4 py-2 bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-white rounded-full text-xs font-bold transition-all shadow-md active:scale-[0.98] flex-shrink-0"
+                    >
+                      $9.99
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Side Drawer */}
       <AnimatePresence>
@@ -2615,149 +3549,7 @@ export default function App() {
               transition={{ type: 'spring', damping: 25, stiffness: 200 }}
               className="fixed top-0 left-0 h-full w-[280px] sm:w-[320px] bg-[#090a0f]/95 border-r border-gray-900 z-50 p-6 flex flex-col justify-between shadow-2xl backdrop-blur-md text-left"
             >
-              <div>
-                {/* Header */}
-                <div className="flex items-center justify-between border-b border-gray-900 pb-4 mb-6">
-                  <div className="flex items-center gap-2">
-                    <div className="p-1.5 rounded-lg bg-gradient-to-tr from-purple-600 to-indigo-600">
-                      <Sparkles className="w-4 h-4 text-white" />
-                    </div>
-                    <span className="text-base font-bold text-gray-200 tracking-wider">gene46 メニュー</span>
-                  </div>
-                  <button
-                    onClick={() => setShowDrawer(false)}
-                    className="p-1.5 text-gray-500 hover:text-gray-300 rounded-lg hover:bg-gray-900 transition-colors"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-
-                {/* Navigation Menu */}
-                <nav className="space-y-2">
-                  {sessionType === 'anonymous' ? (
-                    <button
-                      onClick={() => {
-                        playClick();
-                        handleClerkUpgrade();
-                      }}
-                      className="w-full text-left px-4 py-3 bg-gradient-to-r from-purple-900/40 to-indigo-900/40 border border-purple-500/20 hover:border-purple-500/40 rounded-xl text-xs font-bold text-purple-200 hover:text-white transition-all flex items-center justify-between"
-                    >
-                      <span className="flex items-center gap-1.5">
-                        <Sparkles className="w-3.5 h-3.5 text-yellow-400" />
-                        クラウドに保存（ログイン）
-                      </span>
-                      <span className="text-purple-400 text-[10px]">→</span>
-                    </button>
-                  ) : (
-                    <div className="space-y-2">
-                      <div className="w-full px-4 py-3 bg-emerald-950/20 border border-emerald-500/20 rounded-xl text-xs font-semibold text-emerald-300 flex items-center gap-2">
-                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                        クラウド同期済み（登録済）
-                      </div>
-                      <button
-                        onClick={() => {
-                          playClick();
-                          handleLogout();
-                        }}
-                        className="w-full text-left px-4 py-2.5 bg-rose-950/20 border border-rose-500/10 hover:border-rose-500/30 rounded-xl text-[10px] font-bold text-rose-300 hover:text-rose-200 transition-all flex items-center justify-between shadow-lg"
-                      >
-                        <span>アカウントのログアウト</span>
-                        <span className="text-rose-400 opacity-60">→</span>
-                      </button>
-                    </div>
-                  )}
-
-                  <button
-                    onClick={() => {
-                      setShowTermsModal(true);
-                    }}
-                    className="w-full text-left px-4 py-3 bg-gray-950/40 border border-gray-900 hover:border-purple-500/20 rounded-xl text-xs font-semibold text-gray-300 hover:text-white transition-all flex items-center justify-between"
-                  >
-                    <span>利用規約</span>
-                    <span className="text-gray-600 text-[10px]">→</span>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setShowPrivacyModal(true);
-                    }}
-                    className="w-full text-left px-4 py-3 bg-gray-950/40 border border-gray-900 hover:border-purple-500/20 rounded-xl text-xs font-semibold text-gray-300 hover:text-white transition-all flex items-center justify-between"
-                  >
-                    <span>プライバシーポリシー</span>
-                    <span className="text-gray-600 text-[10px]">→</span>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setShowReportModal(true);
-                    }}
-                    className="w-full text-left px-4 py-3 bg-gray-950/40 border border-gray-900 hover:border-purple-500/20 rounded-xl text-xs font-semibold text-gray-300 hover:text-white transition-all flex items-center justify-between"
-                  >
-                    <span>問題報告・ご意見</span>
-                    <span className="text-gray-600 text-[10px]">→</span>
-                  </button>
-                </nav>
-
-                {/* Data Retention Test Section */}
-                <div className="mt-4 p-3 bg-gray-950/60 border border-gray-900 rounded-xl space-y-2 text-left">
-                  <div className="flex items-center justify-between border-b border-gray-900 pb-1.5 mb-1.5">
-                    <span className="text-[9px] uppercase tracking-widest text-purple-400 font-extrabold flex items-center gap-1">
-                      🧪 データ保持検証テスト
-                    </span>
-                    <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold ${
-                      sessionType === 'authenticated'
-                        ? 'bg-emerald-950/40 border border-emerald-500/20 text-emerald-400'
-                        : 'bg-yellow-950/40 border border-yellow-500/20 text-yellow-400'
-                    }`}>
-                      {sessionType === 'authenticated' ? 'テスト成功' : 'テスト待機中'}
-                    </span>
-                  </div>
-                  <p className="text-[9px] text-gray-500 leading-normal">
-                    ログイン後にデータ（セッションIDとスワイプ数・所持ソウル）が引き継がれ、消失しないことを実証するためのテストパネルです。
-                  </p>
-                  
-                  <div className="space-y-1.5 text-[9px] font-semibold text-gray-400">
-                    <div className="flex justify-between items-center bg-black/40 px-2 py-1 rounded">
-                      <span>1. 累計スワイプ数:</span>
-                      <span className="text-gray-200 font-bold">{staminaData.lifetimeSwipes} 回</span>
-                    </div>
-                    <div className="flex justify-between items-center bg-black/40 px-2 py-1 rounded">
-                      <span>2. 所持ソウル:</span>
-                      <span className="text-gray-200 font-bold">🔮 {staminaData.souls} Soul</span>
-                    </div>
-                    <div className="flex justify-between items-center bg-black/40 px-2 py-1 rounded">
-                      <span>3. 接続アカウント状態:</span>
-                      <span className={sessionType === 'authenticated' ? "text-emerald-400 font-bold" : "text-yellow-500 font-bold"}>
-                        {sessionType === 'authenticated' ? "✅ ログイン済み（同期中）" : "未ログイン（匿名状態）"}
-                      </span>
-                    </div>
-                  </div>
-
-                  {sessionType === 'authenticated' ? (
-                    <div className="mt-2 p-2 bg-emerald-950/30 border border-emerald-500/20 rounded-lg text-[9px] text-emerald-300 font-bold leading-normal">
-                      🎉 【検証結果：合格】<br />
-                      データは一切失われず、同じセッションID（末尾: {sessionId.slice(-6)}）のままクラウドに正常に同期・移行されました！
-                    </div>
-                  ) : (
-                    <div className="mt-2 p-2 bg-yellow-950/20 border border-yellow-500/10 rounded-lg text-[9px] text-gray-400 leading-normal">
-                      💡 ログイン前（匿名状態）でカードを数回スワイプしてソウルを貯めてからログイン（Google/Mock）してください。数値がそのまま引き継がれることを確認できます。
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Session ID / Debug info at the bottom */}
-              <div className="border-t border-gray-900 pt-4 mt-6 text-[10px] text-gray-500 space-y-1.5">
-                <div>
-                  <span className="font-bold text-gray-400 block mb-0.5">セッションID:</span>
-                  <div className="flex items-center gap-1 bg-gray-950/60 border border-gray-900 px-2.5 py-1.5 rounded-lg select-all font-mono truncate text-[9px] text-gray-400">
-                    {sessionId}
-                  </div>
-                </div>
-                <div className="text-center text-[9px] text-gray-600 mt-2">
-                  © 2026 gene46 Project. All rights reserved.
-                </div>
-              </div>
+              {renderSidebarContent(true)}
             </motion.div>
           </>
         )}
@@ -2778,7 +3570,9 @@ export default function App() {
               className="w-full max-w-sm bg-[#0a0b10] border border-gray-900 rounded-2xl p-6 shadow-2xl relative overflow-hidden text-left"
             >
               <div className="flex items-center justify-between mb-4 border-b border-gray-900 pb-3">
-                <h3 className="text-sm font-bold text-gray-200">利用規約</h3>
+                <h3 className="text-sm font-bold text-gray-200">
+                  {lang === 'en' ? 'Terms of Service' : '利用規約'}
+                </h3>
                 <button
                   onClick={() => setShowTermsModal(false)}
                   className="p-1 text-gray-500 hover:text-gray-300 rounded-lg hover:bg-gray-900 transition-colors"
@@ -2788,17 +3582,35 @@ export default function App() {
               </div>
 
               <div className="text-xs text-gray-400 space-y-3 max-h-[350px] overflow-y-auto pr-1 leading-relaxed scrollbar-thin scrollbar-thumb-purple-900">
-                <h4 className="font-bold text-gray-200">1. はじめに</h4>
-                <p>本規約は、AI生成遺伝子型ジェネレーティブアート探索ツール「gene46」（以下、「本サービス」）の利用条件を定めるものです。</p>
-                
-                <h4 className="font-bold text-gray-200">2. 知的財産権について</h4>
-                <p>ユーザーが作成または分岐（フォーク）したスレッド、および本サービス内で生成された個体（スペックメン）の画像・DNAデータは、パブリックドメイン扱いとして扱われ、商用・非商用問わず誰でも自由に保存、コピー、改変、配布することができます。</p>
-                
-                <h4 className="font-bold text-gray-200">3. 禁止事項</h4>
-                <p>・自動スクリプト、ボット等の使用によるサーバーへの過度なリクエスト送信<br/>・ハニーポットや検証システムを意図的にバイパスする行為<br/>・その他、本サービスのシステム運用を妨げる一切のハッキングや不正アクセス行為</p>
+                {lang === 'en' ? (
+                  <>
+                    <h4 className="font-bold text-gray-200">1. Introduction</h4>
+                    <p>These terms govern the use of the AI-generated genotype generative art exploration tool "gene46" (hereinafter referred to as "the Service").</p>
+                    
+                    <h4 className="font-bold text-gray-200">2. Intellectual Property Rights</h4>
+                    <p>Threads created or forked by users, as well as specimen images and DNA data generated within this Service, are treated as public domain. Anyone is free to save, copy, modify, and distribute them for both commercial and non-commercial purposes.</p>
+                    
+                    <h4 className="font-bold text-gray-200">3. Prohibited Matters</h4>
+                    <p>• Sending excessive requests to the server using automated scripts, bots, etc.<br/>• Intentionally bypassing the honeypot or verification system.<br/>• Any other hacking or unauthorized access activities that disrupt the operation of this Service's system.</p>
 
-                <h4 className="font-bold text-gray-200">4. 免責事項</h4>
-                <p>本サービスの利用に関連して発生したユーザーの損害について、運営者は一切の責任を負いません。また、予告なくサービス内容の変更、休止、進化シミュレーションの終了を行う場合があります。</p>
+                    <h4 className="font-bold text-gray-200">4. Disclaimer</h4>
+                    <p>The operator shall not be liable for any damages incurred by users in connection with the use of this Service. In addition, the content of the Service may be modified, suspended, or the evolution simulation terminated without prior notice.</p>
+                  </>
+                ) : (
+                  <>
+                    <h4 className="font-bold text-gray-200">1. はじめに</h4>
+                    <p>本規約は、AI生成遺伝子型ジェネレーティブアート探索ツール「gene46」（以下、「本サービス」）の利用条件を定めるものです。</p>
+                    
+                    <h4 className="font-bold text-gray-200">2. 知的財産権について</h4>
+                    <p>ユーザーが作成または分岐（フォーク）したスレッド、および本サービス内で生成された個体（スペックメン）の画像・DNAデータは、パブリックドメイン扱いとして扱われ、商用・非商用問わず誰でも自由に保存、コピー、改変、配布することができます。</p>
+                    
+                    <h4 className="font-bold text-gray-200">3. 禁止事項</h4>
+                    <p>・自動スクリプト、ボット等の使用によるサーバーへの過度なリクエスト送信<br/>・ハニーポットや検証システムを意図的にバイパスする行為<br/>・その他、本サービスのシステム運用を妨げる一切のハッキングや不正アクセス行為</p>
+
+                    <h4 className="font-bold text-gray-200">4. 免責事項</h4>
+                    <p>本サービスの利用に関連して発生したユーザーの損害について、運営者は一切の責任を負いません。また、予告なくサービス内容の変更、休止、進化シミュレーションの終了を行う場合があります。</p>
+                  </>
+                )}
               </div>
             </motion.div>
           </div>
@@ -2820,7 +3632,9 @@ export default function App() {
               className="w-full max-w-sm bg-[#0a0b10] border border-gray-900 rounded-2xl p-6 shadow-2xl relative overflow-hidden text-left"
             >
               <div className="flex items-center justify-between mb-4 border-b border-gray-900 pb-3">
-                <h3 className="text-sm font-bold text-gray-200">プライバシーポリシー</h3>
+                <h3 className="text-sm font-bold text-gray-200">
+                  {lang === 'en' ? 'Privacy Policy' : 'プライバシーポリシー'}
+                </h3>
                 <button
                   onClick={() => setShowPrivacyModal(false)}
                   className="p-1 text-gray-500 hover:text-gray-300 rounded-lg hover:bg-gray-900 transition-colors"
@@ -2830,15 +3644,195 @@ export default function App() {
               </div>
 
               <div className="text-xs text-gray-400 space-y-3 max-h-[350px] overflow-y-auto pr-1 leading-relaxed scrollbar-thin scrollbar-thumb-purple-900">
-                <h4 className="font-bold text-gray-200">1. 収集する情報</h4>
-                <p>本サービスは匿名でご利用いただけるため、氏名、メールアドレス、電話番号などの個人情報は一切収集いたしません。</p>
-                <p>本サービスでは、個人の識別およびスワイプや投票の重複を防ぐため、自動生成されたランダムなUUID形式の「セッションID」のみをブラウザのLocalStorageに保存し、バックエンドのデータベース（D1）と連携します。</p>
+                {lang === 'en' ? (
+                  <>
+                    <h4 className="font-bold text-gray-200">1. Information We Collect</h4>
+                    <p>Because this Service is anonymous, we do not collect personal information such as name, email address, or phone number.</p>
+                    <p>To identify sessions and prevent duplicate swipes or votes, we only store an automatically generated random UUID session ID in the browser LocalStorage and sync it with our backend database (D1).</p>
 
-                <h4 className="font-bold text-gray-200">2. 情報の利用目的</h4>
-                <p>収集された匿名セッションIDは、以下の目的のためにのみ利用されます。<br/>・スワイプスタミナおよびソウルの整合性管理<br/>・スレッドの作成権・所有権の識別<br/>・ボット等による不正行為、不正投票の検知および防御</p>
+                    <h4 className="font-bold text-gray-200">2. Purpose of Use</h4>
+                    <p>The collected anonymous session ID is used solely for:<br/>• Managing swipe stamina and soul balance integrity<br/>• Identifying thread ownership and creation rights<br/>• Detecting and preventing bots or fraudulent voting/actions</p>
 
-                <h4 className="font-bold text-gray-200">3. セキュリティおよびCloudflareの利用</h4>
-                <p>本サービスはCloudflare Workers及びCloudflare D1で運用されており、不正アクセスを防ぐためのボット防御機能（Turnstileなど）が適用されます。セッションIDを含むローカルストレージの整合性は、暗号署名及びハッシュチェックサムによって検証され、改ざんを防いでいます。</p>
+                    <h4 className="font-bold text-gray-200">3. Security & Cloudflare</h4>
+                    <p>This Service runs on Cloudflare Workers and Cloudflare D1, employing bot protection measures (such as Turnstile) to block unauthorized access. LocalStorage integrity, including the session ID, is validated via cryptographic signatures and checksums to prevent tampering.</p>
+                  </>
+                ) : (
+                  <>
+                    <h4 className="font-bold text-gray-200">1. 収集する情報</h4>
+                    <p>本サービスは匿名でご利用いただけるため、氏名、メールアドレス、電話番号などの個人情報は一切収集いたしません。</p>
+                    <p>本サービスでは、個人の識別およびスワイプや投票の重複を防ぐため、自動生成されたランダムなUUID形式の「セッションID」のみをブラウザのLocalStorageに保存し、バックエンドのデータベース（D1）と連携します。</p>
+
+                    <h4 className="font-bold text-gray-200">2. 情報の利用目的</h4>
+                    <p>収集された匿名セッションIDは、以下の目的のためにのみ利用されます。<br/>• スワイプスタミナおよびソウルの整合性管理<br/>• スレッドの作成権・所有権の識別<br/>• ボット等による不正行為、不正投票の検知および防御</p>
+
+                    <h4 className="font-bold text-gray-200">3. セキュリティおよびCloudflareの利用</h4>
+                    <p>本サービスはCloudflare Workers及びCloudflare D1で運用されており、不正アクセスを防ぐためのボット防御機能（Turnstileなど）が適用されます。セッションIDを含むローカルストレージの整合性は、暗号署名及びハッシュチェックサムによって検証され、改ざんを防いでいます。</p>
+                  </>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Act on Specified Commercial Transactions / Return Policy Modal */}
+      <AnimatePresence>
+        {showCommercialModal && (
+          <div 
+            onClick={() => setShowCommercialModal(false)}
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-6"
+          >
+            <motion.div
+              onClick={(e) => e.stopPropagation()}
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="w-full max-w-sm bg-[#0a0b10] border border-gray-900 rounded-2xl p-6 shadow-2xl relative overflow-hidden text-left"
+            >
+              <div className="flex items-center justify-between mb-4 border-b border-gray-900 pb-3">
+                <div className="flex-1 min-w-0 mr-2">
+                  <h3 className="text-sm font-bold text-gray-200 truncate">
+                    {commercialLang === 'ja' ? '特定商取引法に基づく表記・返金' : 'Legal & Refund Policy'}
+                  </h3>
+                </div>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <div className="flex p-0.5 bg-gray-950 border border-gray-900 rounded-lg text-[9px] font-bold">
+                    <button
+                      onClick={() => { playClick(); setCommercialLang('ja'); }}
+                      className={`px-1.5 py-0.5 rounded transition-all ${
+                        commercialLang === 'ja'
+                          ? 'bg-purple-600/20 text-purple-300 border border-purple-500/10'
+                          : 'text-gray-500 hover:text-gray-400 border border-transparent'
+                      }`}
+                    >
+                      JP
+                    </button>
+                    <button
+                      onClick={() => { playClick(); setCommercialLang('en'); }}
+                      className={`px-1.5 py-0.5 rounded transition-all ${
+                        commercialLang === 'en'
+                          ? 'bg-purple-600/20 text-purple-300 border border-purple-500/10'
+                          : 'text-gray-500 hover:text-gray-400 border border-transparent'
+                      }`}
+                    >
+                      EN
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => setShowCommercialModal(false)}
+                    className="p-1 text-gray-500 hover:text-gray-300 rounded-lg hover:bg-gray-900 transition-colors ml-1"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="text-xs text-gray-400 space-y-4 max-h-[380px] overflow-y-auto pr-1 leading-relaxed scrollbar-thin scrollbar-thumb-purple-900">
+                {commercialLang === 'ja' ? (
+                  <>
+                    <div>
+                      <h4 className="font-bold text-gray-200">■ 販売事業者名</h4>
+                      <p>oyna / gene46運営事務局</p>
+                    </div>
+                    
+                    <div>
+                      <h4 className="font-bold text-gray-200">■ 代表者名・運営責任者</h4>
+                      <p>非開示（請求があった場合は遅滞なく開示いたします）</p>
+                    </div>
+                    
+                    <div>
+                      <h4 className="font-bold text-gray-200">■ 所在地</h4>
+                      <p>非開示（請求があった場合は遅滞なく開示いたします）</p>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-gray-200">■ お問い合わせ先</h4>
+                      <p>お問い合わせはメールにて受け付けております。<br/>メール：contact@gene46.net</p>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-gray-200">■ 販売価格</h4>
+                      <p>購入画面にて表示されます（米ドル表記）。</p>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-gray-200">■ 商品代金以外の必要料金</h4>
+                      <p>インターネット接続料金、パケット通信料などの通信費用。</p>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-gray-200">■ 引き渡し時期</h4>
+                      <p>Stripeによる決済完了後、即時にシステム上で「ソウル水晶」が付与されます。</p>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-gray-200">■ 支払方法・支払時期</h4>
+                      <p>・支払方法：クレジットカード決済（Stripe）<br/>・支払時期：商品購入時（前払い）</p>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-gray-200">■ 返品・返金ポリシー（キャンセルについて）</h4>
+                      <p>商品の性質上、決済完了後のキャンセル・返品・返金は一切お受けできません。<br/><br/>万が一、システム的なエラー等により決済完了後に「ソウル水晶」が正常に反映されなかった場合は、お手数ですがメール（contact@gene46.net）にてお問い合わせください。調査の上、個別に再付与等の対応をさせていただきます。</p>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-gray-200">■ 動作環境</h4>
+                      <p>インターネットに接続された一般的なPC、スマートフォンのブラウザ（Chrome、Safari、Edge、Firefox等最新版）。</p>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <h4 className="font-bold text-gray-200">■ Distributor / Seller Name</h4>
+                      <p>oyna / gene46 Administrative Office</p>
+                    </div>
+                    
+                    <div>
+                      <h4 className="font-bold text-gray-200">■ Representative / Director</h4>
+                      <p>Undisclosed (Will be disclosed without delay upon written request)</p>
+                    </div>
+                    
+                    <div>
+                      <h4 className="font-bold text-gray-200">■ Business Address</h4>
+                      <p>Undisclosed (Will be disclosed without delay upon written request)</p>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-gray-200">■ Customer Support / Contact</h4>
+                      <p>Please contact us via email.<br/>Email: contact@gene46.net</p>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-gray-200">■ Sales Price</h4>
+                      <p>Displayed on the purchase screen (in USD).</p>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-gray-200">■ Additional Required Fees</h4>
+                      <p>Internet connection charges and cellular data communication costs.</p>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-gray-200">■ Delivery Time</h4>
+                      <p>Soul items will be credited to the user session immediately after the successful completion of the transaction via Stripe checkout.</p>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-gray-200">■ Payment Method & Timing</h4>
+                      <p>• Payment Method: Credit Card / Apple Pay / Google Pay via Stripe<br/>• Payment Timing: Prepaid at the time of purchase</p>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-gray-200">■ Returns & Refunds Policy (Cancellations)</h4>
+                      <p>Due to the digital nature of the products, all purchases are final and non-refundable. Cancellations and returns are not accepted once the payment transaction is completed.<br/><br/>If the purchased items fail to reflect in your account due to technical system issues, please contact us by email (contact@gene46.net). Upon validation, we will manually credit the items to your session.</p>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-gray-200">■ Recommended System Environment</h4>
+                      <p>Any standard desktop or mobile web browser with internet connection (latest version of Chrome, Safari, Edge, Firefox, etc.).</p>
+                    </div>
+                  </>
+                )}
               </div>
             </motion.div>
           </div>
@@ -2860,7 +3854,9 @@ export default function App() {
               className="w-full max-w-sm bg-[#0a0b10] border border-gray-900 rounded-2xl p-6 shadow-2xl relative overflow-hidden text-left"
             >
               <div className="flex items-center justify-between mb-4 border-b border-gray-900 pb-3">
-                <h3 className="text-sm font-bold text-gray-200">問題報告・ご意見</h3>
+                <h3 className="text-sm font-bold text-gray-200">
+                  {lang === 'en' ? 'Report a Problem / Feedback' : '問題報告・ご意見'}
+                </h3>
                 <button
                   onClick={() => setShowReportModal(false)}
                   className="p-1 text-gray-500 hover:text-gray-300 rounded-lg hover:bg-gray-900 transition-colors"
@@ -2872,29 +3868,29 @@ export default function App() {
               <form onSubmit={handleSubmitReport} className="space-y-4 relative z-10 text-left">
                 <div>
                   <label className="block text-[10px] uppercase tracking-wider font-bold text-gray-500 mb-1.5">
-                    カテゴリー
+                    {lang === 'en' ? 'Category' : 'カテゴリー'}
                   </label>
                   <select
                     value={reportCategory}
                     onChange={(e) => setReportCategory(e.target.value)}
                     className="w-full bg-gray-950 border border-gray-900 rounded-xl px-3 py-2.5 text-xs text-gray-300 outline-none focus:border-purple-500/50 transition-colors cursor-pointer"
                   >
-                    <option value="不具合">不具合・バグ報告</option>
-                    <option value="機能要望">新機能の要望</option>
-                    <option value="デザイン">デザイン・UIへの不満</option>
-                    <option value="その他">その他・感想</option>
+                    <option value="不具合">{lang === 'en' ? 'Bug / Problem Report' : '不具合・バグ報告'}</option>
+                    <option value="機能要望">{lang === 'en' ? 'Feature Request' : '新機能の要望'}</option>
+                    <option value="デザイン">{lang === 'en' ? 'Design / UI Feedback' : 'デザイン・UIへの不満'}</option>
+                    <option value="その他">{lang === 'en' ? 'Other / Feedback' : 'その他・感想'}</option>
                   </select>
                 </div>
 
                 <div>
                   <label className="block text-[10px] uppercase tracking-wider font-bold text-gray-500 mb-1.5">
-                    詳細内容
+                    {lang === 'en' ? 'Description' : '詳細内容'}
                   </label>
                   <textarea
                     required
                     rows={5}
                     maxLength={1000}
-                    placeholder="不具合の再現手順やご意見を詳しく入力してください。"
+                    placeholder={lang === 'en' ? 'Please describe the steps to reproduce the issue or your feedback in detail.' : '不具合の再現手順やご意見を詳しく入力してください。'}
                     value={reportDesc}
                     onChange={(e) => setReportDesc(e.target.value)}
                     className="w-full bg-gray-950 border border-gray-900 rounded-xl px-3 py-2.5 text-xs text-gray-300 outline-none focus:border-purple-500/50 transition-colors resize-none placeholder:text-gray-700"
@@ -2907,7 +3903,7 @@ export default function App() {
                   className="w-full py-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl text-xs font-bold transition-all hover:from-purple-500 hover:to-indigo-500 hover:shadow-lg hover:shadow-indigo-600/20 active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-1.5"
                 >
                   {submittingReport && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                  報告を送信する
+                  {lang === 'en' ? 'Send Report' : '報告を送信する'}
                 </button>
               </form>
             </motion.div>
@@ -2915,6 +3911,115 @@ export default function App() {
         )}
       </AnimatePresence>
       <div id="turnstile-container" className="hidden" />
+      </div>
+
+      {/* PC版の右サイドバー (スマホ推奨メッセージ + QRコード) */}
+      <div className="hidden lg:flex w-[280px] sm:w-[320px] bg-[#090a0f]/95 border-l border-gray-900 p-6 flex-col items-center justify-center gap-6 shadow-2xl backdrop-blur-md text-center flex-shrink-0 relative overflow-hidden z-20">
+        {/* 背景グラデーション */}
+        <div className="absolute top-[-20%] right-[-20%] w-[60%] h-[60%] rounded-full bg-purple-900/10 blur-[80px] pointer-events-none" />
+        
+        <div className="space-y-6 z-10 flex flex-col items-center">
+          <div className="flex flex-col items-center gap-2">
+            <div className="p-2.5 rounded-2xl bg-gradient-to-tr from-purple-500/10 to-indigo-500/10 border border-purple-500/20 shadow-inner">
+              <Sparkles className="w-6 h-6 text-purple-400 drop-shadow-[0_0_8px_rgba(168,85,247,0.7)] animate-pulse" />
+            </div>
+            <h3 className="text-sm font-extrabold text-gray-200 tracking-wider uppercase">MOBILE OPTIMIZED</h3>
+          </div>
+          
+          <p className="text-xs text-gray-400 leading-relaxed max-w-[240px]">
+            {lang === 'en'
+              ? 'This application is optimized for mobile devices. Using it on a smartphone offers the best experience.'
+              : '当アプリはスマホで使うことを前提に開発したため、スマートフォンからのご利用が最も快適です。'}
+          </p>
+
+          {/* QRコード表示枠 */}
+          <div className="relative group p-3 bg-black border border-gray-800 rounded-2xl shadow-2xl transition-all duration-300 hover:border-purple-500/40">
+            <img 
+              src="/qr-code.png" 
+              alt="QR Code to gene46.net" 
+              className="w-40 h-40 rounded-xl"
+            />
+            <div className="absolute inset-0 border border-purple-500/10 rounded-2xl pointer-events-none group-hover:border-purple-500/30 transition-colors" />
+          </div>
+
+          <div className="space-y-1">
+            <p className="text-[10px] text-gray-500 font-medium">
+              {lang === 'en' ? 'Scan with your camera to access' : 'スマホのカメラで読み取ってアクセス'}
+            </p>
+            <a href="https://gene46.net" target="_blank" rel="noreferrer" className="text-[10px] text-purple-400 hover:underline font-mono">
+              https://gene46.net
+            </a>
+          </div>
+        </div>
+      </div>
+
+      {/* Special Charge Release Fullscreen VFX */}
+      <AnimatePresence>
+        {showChargeEffect && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="fixed inset-0 z-50 pointer-events-none flex items-center justify-center bg-purple-950/20 backdrop-blur-[2px]"
+          >
+            {/* Energy radial pulse */}
+            <motion.div
+              initial={{ scale: 0, opacity: 1 }}
+              animate={{ scale: 3, opacity: 0 }}
+              transition={{ duration: 1.2, ease: "easeOut" }}
+              className="absolute w-[200px] h-[200px] rounded-full bg-gradient-to-r from-cyan-400 via-purple-500 to-yellow-300 blur-xl opacity-80"
+            />
+            {/* Inner ring */}
+            <motion.div
+              initial={{ scale: 0.2, opacity: 1, rotate: 0 }}
+              animate={{ scale: 2.2, opacity: 0, rotate: 180 }}
+              transition={{ duration: 1.0, ease: "easeOut" }}
+              className="absolute w-[150px] h-[150px] rounded-full border-4 border-dashed border-cyan-300 opacity-60"
+            />
+            {/* Flash screen overlay */}
+            <motion.div
+              initial={{ opacity: 0.8 }}
+              animate={{ opacity: 0 }}
+              transition={{ duration: 0.4 }}
+              className="absolute inset-0 bg-white"
+            />
+            {/* Particles explosion (Simulated with scaling points) */}
+            <div className="absolute inset-0 flex items-center justify-center">
+              {[...Array(12)].map((_, i) => {
+                const angle = (i * 30 * Math.PI) / 180;
+                const x = Math.cos(angle) * 150;
+                const y = Math.sin(angle) * 150;
+                return (
+                  <motion.div
+                    key={i}
+                    initial={{ x: 0, y: 0, scale: 1, opacity: 1 }}
+                    animate={{ x, y, scale: 0, opacity: 0 }}
+                    transition={{ duration: 1.5, ease: "easeOut" }}
+                    className="absolute w-3 h-3 rounded-full bg-gradient-to-r from-yellow-300 to-pink-500 shadow-[0_0_8px_rgba(253,224,71,0.8)]"
+                  />
+                );
+              })}
+            </div>
+            
+            {/* Sparkles / Max Banner */}
+            <motion.div
+              initial={{ scale: 0.5, y: 50, opacity: 0 }}
+              animate={{ scale: 1.1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.8, y: -30, opacity: 0 }}
+              transition={{ type: "spring", damping: 12 }}
+              className="flex flex-col items-center gap-2 z-10"
+            >
+              <div className="flex items-center gap-1 text-yellow-300 font-extrabold uppercase tracking-widest text-xs py-1.5 px-4 bg-black/80 border border-yellow-500/30 rounded-full shadow-2xl backdrop-blur-md">
+                <Sparkles className="w-4 h-4 animate-spin" />
+                <span>25 Swipes Charged!</span>
+              </div>
+              <span className="text-[9px] font-mono text-cyan-300 uppercase tracking-widest font-bold">Synchronizing Evolution...</span>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
     </div>
   );
 }
