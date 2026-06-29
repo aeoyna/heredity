@@ -59,6 +59,134 @@ function buildNotInClause(ids: string[], column = 'id'): { clause: string; param
   };
 }
 
+let threadsHasLineCountColumn: boolean | null = null;
+
+async function hasThreadsLineCountColumn(db: D1Database): Promise<boolean> {
+  if (threadsHasLineCountColumn !== null) {
+    return threadsHasLineCountColumn;
+  }
+
+  const { results } = await db.prepare("PRAGMA table_info(threads)").all<{ name: string }>();
+  threadsHasLineCountColumn = (results ?? []).some(row => row.name === 'line_count');
+  return threadsHasLineCountColumn;
+}
+
+const SOUL_GRANT_EXPIRY_MS = 180 * 24 * 60 * 60 * 1000;
+
+async function ensureUserSessionRow(db: D1Database, sessionId: string, now: number): Promise<void> {
+  await db.prepare(
+    "INSERT OR IGNORE INTO user_sessions (session_id, stamina, max_stamina, last_recovery_time, souls, souls_version) VALUES (?, 80, 80, ?, 0, 0)"
+  ).bind(sessionId, now).run();
+}
+
+async function expireSoulGrants(db: D1Database, sessionId: string, now: number): Promise<number> {
+  const expiredRows = await db.prepare(
+    `SELECT id, remaining_amount
+     FROM soul_grants
+     WHERE session_id = ? AND status = 'active' AND remaining_amount > 0 AND expires_at <= ?
+     ORDER BY expires_at ASC, issued_at ASC, id ASC`
+  ).bind(sessionId, now).all<{ id: string; remaining_amount: number }>();
+
+  const rows = expiredRows.results ?? [];
+  const expiredAmount = rows.reduce((sum, row) => sum + (row.remaining_amount ?? 0), 0);
+  if (rows.length > 0) {
+    const nowIso = new Date(now).toISOString();
+    for (const row of rows) {
+      await db.prepare(
+        `UPDATE soul_grants
+         SET status = 'expired',
+             remaining_amount = 0,
+             updated_at = ?
+         WHERE id = ?`
+      ).bind(nowIso, row.id).run();
+    }
+  }
+
+  return expiredAmount;
+}
+
+async function spendPurchasedSoulGrants(db: D1Database, sessionId: string, amount: number, now: number): Promise<number> {
+  if (amount <= 0) {
+    return 0;
+  }
+
+  const activeRows = await db.prepare(
+    `SELECT id, remaining_amount
+     FROM soul_grants
+     WHERE session_id = ? AND status = 'active' AND remaining_amount > 0 AND expires_at > ?
+     ORDER BY expires_at ASC, issued_at ASC, id ASC`
+  ).bind(sessionId, now).all<{ id: string; remaining_amount: number }>();
+
+  let remainingToSpend = amount;
+  const nowIso = new Date(now).toISOString();
+
+  for (const row of activeRows.results ?? []) {
+    if (remainingToSpend <= 0) {
+      break;
+    }
+
+    const spend = Math.min(row.remaining_amount ?? 0, remainingToSpend);
+    const nextRemaining = Math.max(0, (row.remaining_amount ?? 0) - spend);
+    const nextStatus = nextRemaining === 0 ? 'consumed' : 'active';
+
+    await db.prepare(
+      `UPDATE soul_grants
+       SET remaining_amount = ?,
+           status = ?,
+           updated_at = ?
+       WHERE id = ?`
+    ).bind(nextRemaining, nextStatus, nowIso, row.id).run();
+
+    remainingToSpend -= spend;
+  }
+
+  return amount - remainingToSpend;
+}
+
+async function reconcileSoulBalance(
+  db: D1Database,
+  sessionId: string,
+  targetSouls: number,
+  clientSoulsVersion: number,
+  now = Date.now()
+): Promise<{ souls: number; soulsVersion: number }> {
+  await ensureUserSessionRow(db, sessionId, now);
+
+  const row = await db.prepare(
+    "SELECT souls, souls_version FROM user_sessions WHERE session_id = ?"
+  ).bind(sessionId).first<{ souls: number; souls_version: number }>();
+
+  const rowSouls = Math.max(0, row?.souls ?? 0);
+  const rowVersion = Math.max(0, row?.souls_version ?? 0);
+  let currentSouls = rowSouls;
+  const currentVersion = rowVersion;
+  const expiredAmount = await expireSoulGrants(db, sessionId, now);
+  currentSouls = Math.max(0, currentSouls - expiredAmount);
+
+  const target = Math.max(0, targetSouls);
+  const canSpendDown = clientSoulsVersion >= currentVersion;
+
+  if (target < currentSouls && canSpendDown) {
+    const delta = currentSouls - target;
+    await spendPurchasedSoulGrants(db, sessionId, delta, now);
+    currentSouls = target;
+  } else if (target >= currentSouls) {
+    currentSouls = target;
+  }
+
+  const nextVersion = Math.max(currentVersion, clientSoulsVersion);
+  if (currentSouls !== rowSouls || nextVersion !== rowVersion) {
+    await db.prepare(
+      "UPDATE user_sessions SET souls = ?, souls_version = MAX(COALESCE(souls_version, 0), ?) WHERE session_id = ?"
+    ).bind(currentSouls, nextVersion, sessionId).run();
+  }
+
+  return {
+    souls: currentSouls,
+    soulsVersion: nextVersion
+  };
+}
+
 async function fetchAssignedCardsForSession(
   db: D1Database,
   threadId: string,
@@ -120,7 +248,22 @@ async function claimCardsForSession(
 
 async function authenticateSession(request: Request, env: Env): Promise<{ session_id: string; type: string } | Response> {
   const cookies = parseCookies(request);
-  const token = cookies['auth_token'];
+  let token = cookies['auth_token'];
+
+  if (!token) {
+    const authHeader = request.headers.get('Authorization');
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7);
+    }
+  }
+
+  if (!token) {
+    const sessionHeader = request.headers.get('x-session-id');
+    if (sessionHeader) {
+      token = sessionHeader;
+    }
+  }
+
   if (!token) {
     return new Response(JSON.stringify({ error: 'Unauthorized. Missing authentication token.' }), {
       status: 401,
@@ -199,7 +342,7 @@ async function handlePostAnonymousAuth(request: Request, env: Env): Promise<Resp
 
   const cookie = `auth_token=${jwt}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=31536000`;
 
-  return new Response(JSON.stringify({ success: true, session_id: sessionId, type: 'anonymous' }), {
+  return new Response(JSON.stringify({ success: true, session_id: sessionId, type: 'anonymous', token: jwt }), {
     headers: {
       'Content-Type': 'application/json',
       'Set-Cookie': cookie,
@@ -237,7 +380,7 @@ async function handlePostUpgradeAuth(request: Request, env: Env): Promise<Respon
 
   const cookie = `auth_token=${jwt}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=31536000`;
 
-  return new Response(JSON.stringify({ success: true, session_id: sessionId, clerk_user_id: clerkUserId, type: 'authenticated' }), {
+  return new Response(JSON.stringify({ success: true, session_id: sessionId, clerk_user_id: clerkUserId, type: 'authenticated', token: jwt }), {
     headers: {
       'Content-Type': 'application/json',
       'Set-Cookie': cookie,
@@ -364,6 +507,7 @@ async function handleGetGoogleCallback(request: Request, env: Env): Promise<Resp
     if (sOld && sOld.session_id !== sessionId) {
       // 3. Merge S_anon and S_old
       const merged = mergeGameStates(parseState(sAnon), parseState(sOld));
+      const mergedSoulsVersion = Math.max(sAnon?.souls_version ?? 0, sOld.souls_version ?? 0);
 
       // 4. Update the current upgraded session with the merged values and clerk_user_id
       await env.DB.prepare(
@@ -374,6 +518,7 @@ async function handleGetGoogleCallback(request: Request, env: Env): Promise<Resp
              lifetime_swipes = ?,
              last_recovery_time = ?,
              souls = ?,
+             souls_version = ?,
              is_ad_free = ?,
              outs = ?,
              last_out_recovery_time = ?,
@@ -386,6 +531,7 @@ async function handleGetGoogleCallback(request: Request, env: Env): Promise<Resp
         merged.lifetimeSwipes,
         merged.lastRecoveryTime,
         merged.souls,
+        mergedSoulsVersion,
         merged.isAdFree ? 1 : 0,
         merged.outs ?? 0,
         merged.lastOutRecoveryTime ?? 0,
@@ -404,6 +550,10 @@ async function handleGetGoogleCallback(request: Request, env: Env): Promise<Resp
 
       await env.DB.prepare(
         "UPDATE reports SET session_id = ? WHERE session_id = ?"
+      ).bind(sessionId, sOld.session_id).run();
+
+      await env.DB.prepare(
+        "UPDATE soul_grants SET session_id = ? WHERE session_id = ?"
       ).bind(sessionId, sOld.session_id).run();
 
       // 6. Delete S_old row
@@ -430,10 +580,13 @@ async function handleGetGoogleCallback(request: Request, env: Env): Promise<Resp
 
     const cookie = `auth_token=${jwt}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=31536000`;
 
+    const redirectTarget = new URL(fallbackUrl);
+    redirectTarget.searchParams.set('token', jwt);
+
     return new Response(null, {
       status: 302,
       headers: {
-        'Location': fallbackUrl,
+        'Location': redirectTarget.toString(),
         'Set-Cookie': cookie
       }
     });
@@ -581,27 +734,6 @@ export default {
         headers: { 'Content-Type': 'application/json', ...corsHeaders(request) }
       });
     }
-  },
-
-  // Cron trigger execution
-  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-    console.log('Running scheduled genetic algorithm evolution...');
-    try {
-      const { results: threads } = await env.DB.prepare(
-        "SELECT id, type FROM threads"
-      ).all<{ id: string; type: 'line' | 'mosaic' }>();
-
-      for (const thread of threads) {
-        try {
-          const res = await evolveThread(env.DB, thread.id, thread.type);
-          console.log(`Thread ${thread.id} evolved: Gen ${res.currentGen} -> Gen ${res.nextGen}`);
-        } catch (e) {
-          console.error(`Failed to evolve thread ${thread.id}:`, e);
-        }
-      }
-    } catch (err) {
-      console.error('Failed to run scheduled GA evolution:', err);
-    }
   }
 };
 
@@ -621,19 +753,17 @@ async function handleGetGeo(request: Request, env: Env): Promise<Response> {
 // GET /api/threads
 // Ranking: Hacker News-style hybrid score = (total_swipes + 1) / (age_hours + 2)^1.5
 // New projects appear near top by default; active ones stay visible; all decay over time.
+// Uses denormalized total_swipes/current_generation on threads table to avoid expensive JOIN with specimens.
 async function handleGetThreads(request: Request, env: Env): Promise<Response> {
   const { results } = await env.DB.prepare(
     `SELECT
-       t.id, t.name, t.type, t.creator_session_id, t.created_at,
-       COALESCE(MAX(s.generation), 0) AS generation,
-       COALESCE(SUM(s.likes_count + s.nopes_count), 0) AS total_swipes
-     FROM threads t
-     LEFT JOIN specimens s ON t.id = s.thread_id AND s.status = 'active'
-     GROUP BY t.id
+       id, name, type, creator_session_id, created_at,
+       current_generation AS generation, total_swipes
+     FROM threads
      ORDER BY
-       (COALESCE(SUM(s.likes_count + s.nopes_count), 0) + 1.0)
+       (total_swipes + 1.0)
        / exp(1.5 * log(
-           (CAST(strftime('%s', 'now') AS REAL) - CAST(strftime('%s', t.created_at) AS REAL))
+           (CAST(strftime('%s', 'now') AS REAL) - CAST(strftime('%s', created_at) AS REAL))
            / 3600.0 + 2.0
          ))
        DESC`
@@ -652,8 +782,9 @@ async function handlePostThread(
   ctx: ExecutionContext
 ): Promise<Response> {
   const sessionId = session.session_id;
-  const body = await request.json<{ name?: string; type?: 'line' | 'mosaic'; fork_dna?: any }>();
-  const { name, type, fork_dna } = body;
+  const body = await request.json<{ name?: string; type?: 'line' | 'mosaic'; fork_dna?: any; lineCount?: number }>();
+  const { name, type, fork_dna, lineCount } = body;
+
 
   if (!name || !type || (type !== 'line' && type !== 'mosaic')) {
     return new Response(JSON.stringify({ error: 'Invalid name or type. Type must be "line" or "mosaic"' }), {
@@ -672,10 +803,30 @@ async function handlePostThread(
   const threadId = `thread_${crypto.randomUUID()}`;
   const nowStr = new Date().toISOString();
 
-  // 1. Insert Thread
+  // Determine line count with default 10
+  const lineCountValue = (type === 'line') ? (typeof lineCount === 'number' ? lineCount : 10) : undefined;
+  // Validate line count range
+  if (type === 'line' && (lineCountValue === undefined || lineCountValue < 1 || lineCountValue > 10)) {
+    return new Response(JSON.stringify({ error: 'lineCount must be between 1 and 10' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(request) }
+    });
+  }
+
+  // 1. Insert Thread. Older D1 databases may not have line_count yet, so keep creation backward compatible.
+  const lineCountColumnExists = type === 'line' ? await hasThreadsLineCountColumn(env.DB) : false;
   await env.DB.prepare(
-    "INSERT INTO threads (id, name, type, creator_session_id, created_at) VALUES (?, ?, ?, ?, ?)"
-  ).bind(threadId, name, type, sessionId || null, nowStr).run();
+    type === 'line' && lineCountColumnExists
+      ? "INSERT INTO threads (id, name, type, creator_session_id, created_at, line_count) VALUES (?, ?, ?, ?, ?, ?)"
+      : "INSERT INTO threads (id, name, type, creator_session_id, created_at) VALUES (?, ?, ?, ?, ?)"
+  ).bind(
+    threadId,
+    name,
+    type,
+    sessionId || null,
+    nowStr,
+    ...(type === 'line' && lineCountColumnExists ? [lineCountValue] : [])
+  ).run();
 
   // 2. Generate 100 specimens for Gen 0 (97 random or mutated, 3 honeypots)
   const specimensPool = [];
@@ -961,6 +1112,11 @@ async function handlePostSwipe(request: Request, env: Env, session: { session_id
     ).bind(card_id).run();
   }
 
+  // 7. Increment denormalized total_swipes on threads table
+  await env.DB.prepare(
+    "UPDATE threads SET total_swipes = total_swipes + 1 WHERE id = ?"
+  ).bind(thread_id).run();
+
   return new Response(JSON.stringify({ success: true }), {
     headers: { 'Content-Type': 'application/json', ...corsHeaders(request) }
   });
@@ -1067,6 +1223,14 @@ async function handlePostSwipeBulk(
     }
   }
 
+  // Increment denormalized total_swipes on threads table
+  const realSwipeCount = swipes.length;
+  if (realSwipeCount > 0) {
+    statements.push(
+      env.DB.prepare("UPDATE threads SET total_swipes = total_swipes + ? WHERE id = ?").bind(realSwipeCount, thread_id)
+    );
+  }
+
   if (statements.length > 0) {
     await env.DB.batch(statements);
   }
@@ -1166,19 +1330,11 @@ async function handleGetThreadHistory(request: Request, env: Env): Promise<Respo
     });
   }
 
-  // Retrieve exactly one representative specimen for each archived generation
+  // Read precomputed history snapshots instead of scanning archived specimens.
   const { results } = await env.DB.prepare(
-    `SELECT generation, id, dna, likes_count, nopes_count 
-     FROM specimens s1
-     WHERE thread_id = ? AND status = 'archived'
-       AND id = (
-         SELECT id FROM specimens s2
-         WHERE s2.thread_id = s1.thread_id
-           AND s2.generation = s1.generation
-           AND s2.status = 'archived'
-         ORDER BY s2.is_representative DESC, s2.likes_count DESC, s2.id ASC
-         LIMIT 1
-       )
+    `SELECT generation, specimen_id AS id, dna, likes_count, nopes_count
+     FROM thread_history
+     WHERE thread_id = ?
      ORDER BY generation DESC`
   ).bind(threadId).all<{ id: string; generation: number; dna: string; likes_count: number; nopes_count: number }>();
 
@@ -1336,6 +1492,7 @@ async function handlePostStaminaSync(
     lifetimeSwipes?: number;
     lastRecoveryTime?: number;
     souls?: number;
+    soulsVersion?: number;
     isAdFree?: boolean;
     outs?: number;
     lastOutRecoveryTime?: number;
@@ -1358,8 +1515,8 @@ async function handlePostStaminaSync(
     // If session doesn't exist, create it
     const now = Date.now();
     await env.DB.prepare(
-      "INSERT INTO user_sessions (session_id, stamina, max_stamina, last_recovery_time) VALUES (?, ?, ?, ?)"
-    ).bind(sessionId, clientState.stamina ?? 80, clientState.maxStamina ?? 80, clientState.lastRecoveryTime ?? now).run();
+      "INSERT INTO user_sessions (session_id, stamina, max_stamina, last_recovery_time, souls, souls_version) VALUES (?, ?, ?, ?, ?, ?)"
+    ).bind(sessionId, clientState.stamina ?? 80, clientState.maxStamina ?? 80, clientState.lastRecoveryTime ?? now, clientState.souls ?? 0, clientState.soulsVersion ?? 0).run();
     
     serverRow = {
       stamina: clientState.stamina ?? 80,
@@ -1367,12 +1524,15 @@ async function handlePostStaminaSync(
       lifetime_swipes: clientState.lifetimeSwipes ?? 0,
       last_recovery_time: clientState.lastRecoveryTime ?? now,
       souls: clientState.souls ?? 0,
+      souls_version: clientState.soulsVersion ?? 0,
       is_ad_free: clientState.isAdFree ? 1 : 0,
       outs: clientState.outs ?? 0,
       last_out_recovery_time: clientState.lastOutRecoveryTime ?? 0,
       swipes_since_last_out_recovery: clientState.swipesSinceLastOutRecovery ?? 0
     };
   }
+
+  const clientSoulsVersion = clientState.soulsVersion ?? 0;
 
   const clientParsed: GameState = {
     stamina: clientState.stamina ?? 80,
@@ -1400,34 +1560,62 @@ async function handlePostStaminaSync(
 
   // 2. Merge states using standard conflict resolution
   const merged = mergeGameStates(clientParsed, serverParsed);
+  const reconciledSouls = await reconcileSoulBalance(
+    env.DB,
+    sessionId,
+    clientParsed.souls ?? 0,
+    clientSoulsVersion
+  );
+  merged.souls = reconciledSouls.souls;
 
   // 3. Write merged state back to database
-  await env.DB.prepare(
-    `UPDATE user_sessions
-     SET stamina = ?,
-         max_stamina = ?,
-         lifetime_swipes = ?,
-         last_recovery_time = ?,
-         souls = ?,
-         is_ad_free = ?,
-         outs = ?,
-         last_out_recovery_time = ?,
-         swipes_since_last_out_recovery = ?
-     WHERE session_id = ?`
-  ).bind(
-    merged.stamina,
-    merged.maxStamina,
-    merged.lifetimeSwipes,
-    merged.lastRecoveryTime,
-    merged.souls,
-    merged.isAdFree ? 1 : 0,
-    merged.outs ?? 0,
-    merged.lastOutRecoveryTime ?? 0,
-    merged.swipesSinceLastOutRecovery ?? 0,
-    sessionId
-  ).run();
+  const lastRecoveryUnchangedOrNotNeeded =
+    merged.stamina >= merged.maxStamina && serverParsed.stamina >= serverParsed.maxStamina
+      ? true
+      : merged.lastRecoveryTime === serverParsed.lastRecoveryTime;
 
-  return new Response(JSON.stringify({ success: true, state: merged }), {
+  const shouldPersist =
+    merged.stamina !== serverParsed.stamina ||
+    merged.maxStamina !== serverParsed.maxStamina ||
+    merged.lifetimeSwipes !== serverParsed.lifetimeSwipes ||
+    !lastRecoveryUnchangedOrNotNeeded ||
+    merged.souls !== serverParsed.souls ||
+    reconciledSouls.soulsVersion !== (serverRow.souls_version ?? 0) ||
+    merged.isAdFree !== serverParsed.isAdFree ||
+    (merged.outs ?? 0) !== (serverParsed.outs ?? 0) ||
+    (merged.lastOutRecoveryTime ?? 0) !== (serverParsed.lastOutRecoveryTime ?? 0) ||
+    (merged.swipesSinceLastOutRecovery ?? 0) !== (serverParsed.swipesSinceLastOutRecovery ?? 0);
+
+  if (shouldPersist) {
+    await env.DB.prepare(
+      `UPDATE user_sessions
+       SET stamina = ?,
+           max_stamina = ?,
+           lifetime_swipes = ?,
+           last_recovery_time = ?,
+           souls = ?,
+           souls_version = ?,
+           is_ad_free = ?,
+           outs = ?,
+           last_out_recovery_time = ?,
+           swipes_since_last_out_recovery = ?
+       WHERE session_id = ?`
+    ).bind(
+      merged.stamina,
+      merged.maxStamina,
+      merged.lifetimeSwipes,
+      merged.lastRecoveryTime,
+      merged.souls,
+      reconciledSouls.soulsVersion,
+      merged.isAdFree ? 1 : 0,
+      merged.outs ?? 0,
+      merged.lastOutRecoveryTime ?? 0,
+      merged.swipesSinceLastOutRecovery ?? 0,
+      sessionId
+    ).run();
+  }
+
+  return new Response(JSON.stringify({ success: true, state: { ...merged, soulsVersion: reconciledSouls.soulsVersion } }), {
     headers: { 'Content-Type': 'application/json', ...corsHeaders(request) }
   });
 }
@@ -1568,19 +1756,19 @@ async function handlePostCreateCheckoutSession(
   });
 
   const requestUrl = new URL(request.url);
-  const successUrl = `${requestUrl.origin}/?payment=success`;
+  const successUrl = `${requestUrl.origin}/?payment=success&item=${item}`;
   const cancelUrl = `${requestUrl.origin}/?payment=cancel`;
 
   let name = '';
   let amount = 0;
   if (item === 'souls_500') {
-    name = '500 Souls (水晶)';
+    name = '500 Souls';
     amount = 199; // $1.99 USD
   } else if (item === 'souls_1500') {
-    name = '1,500 Souls (水晶)';
+    name = '1,500 Souls';
     amount = 499; // $4.99 USD
   } else if (item === 'souls_4000') {
-    name = '4,000 Souls (水晶)';
+    name = '4,000 Souls';
     amount = 999; // $9.99 USD
   }
 
@@ -1661,21 +1849,55 @@ async function handlePostStripeWebhook(request: Request, env: Env): Promise<Resp
       console.log(`Processing completed payment for session ${sessionId}, item: ${purchaseItem}`);
 
       try {
+        let amount = 0;
         if (purchaseItem === 'souls_500') {
-          await env.DB.prepare(
-            "UPDATE user_sessions SET souls = souls + 500 WHERE session_id = ?"
-          ).bind(sessionId).run();
-          console.log(`Successfully granted 500 souls to session ${sessionId}`);
+          amount = 500;
         } else if (purchaseItem === 'souls_1500') {
-          await env.DB.prepare(
-            "UPDATE user_sessions SET souls = souls + 1500 WHERE session_id = ?"
-          ).bind(sessionId).run();
-          console.log(`Successfully granted 1500 souls to session ${sessionId}`);
+          amount = 1500;
         } else if (purchaseItem === 'souls_4000') {
-          await env.DB.prepare(
-            "UPDATE user_sessions SET souls = souls + 4000 WHERE session_id = ?"
-          ).bind(sessionId).run();
-          console.log(`Successfully granted 4000 souls to session ${sessionId}`);
+          amount = 4000;
+        }
+
+        if (amount > 0) {
+          const now = Date.now();
+          const nowIso = new Date(now).toISOString();
+          const grantId = `soul_grant_${crypto.randomUUID()}`;
+          const grantResult = await env.DB.prepare(
+            `INSERT OR IGNORE INTO soul_grants (
+               id,
+               session_id,
+               stripe_checkout_session_id,
+               purchase_item,
+               amount,
+               remaining_amount,
+               issued_at,
+               expires_at,
+               status,
+               created_at,
+               updated_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`
+          ).bind(
+            grantId,
+            sessionId,
+            session.id ?? grantId,
+            purchaseItem,
+            amount,
+            amount,
+            now,
+            now + SOUL_GRANT_EXPIRY_MS,
+            nowIso,
+            nowIso
+          ).run();
+
+          if ((grantResult.meta?.changes ?? 0) > 0) {
+            await ensureUserSessionRow(env.DB, sessionId, now);
+            await env.DB.prepare(
+              "UPDATE user_sessions SET souls = COALESCE(souls, 0) + ?, souls_version = COALESCE(souls_version, 0) + 1 WHERE session_id = ?"
+            ).bind(amount, sessionId).run();
+            console.log(`Successfully granted ${amount} souls to session ${sessionId}`);
+          } else {
+            console.log(`Stripe grant already recorded for checkout session ${session.id ?? 'unknown'}`);
+          }
         }
       } catch (dbErr: any) {
         console.error('Failed to update user session after payment success:', dbErr);
@@ -1688,4 +1910,3 @@ async function handlePostStripeWebhook(request: Request, env: Env): Promise<Resp
     headers: { 'Content-Type': 'application/json' },
   });
 }
-

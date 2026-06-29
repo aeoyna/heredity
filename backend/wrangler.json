@@ -6,7 +6,8 @@
     {
       "binding": "DB",
       "database_name": "project_x_db",
-      "database_id": "670151e9-9023-4e27-8a36-71c8f3abb508"
+      "database_id": "670151e9-9023-4e27-8a36-71c8f3abb508",
+      "migrations_dir": "./db/migrations"
     }
   ],
   "vars": {
@@ -15,10 +16,5 @@
   "assets": {
     "directory": "../frontend/dist",
     "binding": "ASSETS"
-  },
-  "triggers": {
-    "crons": [
-      "0 * * * *"
-    ]
   }
 }

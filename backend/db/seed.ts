@@ -47,6 +47,7 @@ function seedDatabase() {
     // Clear existing
     db.exec("DELETE FROM threads;");
     db.exec("DELETE FROM specimens;");
+    db.exec("DELETE FROM thread_history;");
     db.exec("DELETE FROM user_sessions;");
 
     const nowStr = new Date().toISOString();

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Activity, Sparkles, RefreshCw, ShieldAlert, Plus, X, Star, Trash2, ShoppingCart, List, Diamond, Download, GitFork, Dna, Copy, Pencil, Battery, ArrowUpCircle, Search, Volume2, VolumeX } from 'lucide-react';
+import { Activity, Sparkles, RefreshCw, ShieldAlert, Plus, X, Star, Trash2, ShoppingCart, List, Diamond, Download, GitFork, Dna, Copy, Pencil, Battery, ArrowUpCircle, Search, Volume2, VolumeX, Share2 } from 'lucide-react';
 import type { LineDNA, MosaicDNA } from '../../backend/src/shared-types';
 import { SwipeCard } from './components/SwipeCard';
 import { LineCanvas } from './components/LineCanvas';
@@ -593,12 +593,7 @@ export default function App() {
         playError();
         return prev;
       }
-      if (prev.stamina >= prev.maxStamina) {
-        showMsg(lang === 'en' ? 'Stamina is already full!' : 'すでにスタミナは満タンです！', 'error');
-        playError();
-        return prev;
-      }
-      const newStamina = Math.min(prev.maxStamina, prev.stamina + 10 * qty);
+      const newStamina = prev.stamina + 10 * qty;
       const nextData = {
         ...prev,
         stamina: newStamina,
@@ -665,6 +660,13 @@ export default function App() {
 
       const data = await res.json();
       if (data.url) {
+        // Track checkout initiation
+        const value = item === 'souls_500' ? 1.99 : item === 'souls_1500' ? 4.99 : item === 'souls_4000' ? 9.99 : 0;
+        logEvent('begin_checkout', {
+          value: value,
+          currency: 'USD',
+          items: [{ item_id: item, item_name: item, price: value, quantity: 1 }]
+        });
         window.location.href = data.url;
       } else {
         throw new Error(lang === 'en' ? 'No checkout URL returned' : '決済URLが返されませんでした');
@@ -791,12 +793,35 @@ export default function App() {
       window.history.replaceState({}, '', url.toString());
     }
 
+    // Google Login Success Tracking
+    const tokenParam = params.get('token');
+    if (tokenParam) {
+      logEvent('login', { method: 'Google' });
+      const url = new URL(window.location.href);
+      url.searchParams.delete('token');
+      window.history.replaceState({}, '', url.toString());
+    }
+
     const paymentParam = params.get('payment');
     if (paymentParam === 'success') {
+      const itemParam = params.get('item') || 'unknown';
+      let value = 0;
+      if (itemParam === 'souls_500') value = 1.99;
+      else if (itemParam === 'souls_1500') value = 4.99;
+      else if (itemParam === 'souls_4000') value = 9.99;
+
+      logEvent('purchase', {
+        transaction_id: `tx_${Date.now()}`,
+        value: value,
+        currency: 'USD',
+        items: [{ item_id: itemParam, item_name: itemParam, price: value, quantity: 1 }]
+      });
+
       showMsg(lang === 'en' ? '🎉 Thank you for your purchase! Premium features have been activated.' : '🎉 ご購入ありがとうございます！プレミアム機能が有効化されました。', 'success');
       playPurchase();
       const url = new URL(window.location.href);
       url.searchParams.delete('payment');
+      url.searchParams.delete('item');
       window.history.replaceState({}, '', url.toString());
       syncStaminaWithServer();
     } else if (paymentParam === 'cancel') {
@@ -1119,6 +1144,7 @@ export default function App() {
       if (!res.ok) throw new Error('Upgrade endpoint returned error');
       const data = await res.json();
       if (data.success) {
+        logEvent('login', { method: 'Mock' });
         setSessionType('authenticated');
         setShowAuthModal(false);
         showMsg(lang === 'en' ? '🎉 Logged in! (Dev Account)' : '🎉 ログイン完了！（開発用アカウント）', 'success');
@@ -1492,6 +1518,48 @@ export default function App() {
     a.click();
     document.body.removeChild(a);
     showMsg(lang === 'en' ? 'Image downloaded!' : '画像をダウンロードしました！', 'success');
+  };
+
+  const handleShareCard = async (card?: CardData) => {
+    playClick();
+    const shareTitle = 'gene46 | Genetic Evolutionary Simulation';
+    
+    let shareText = '';
+    if (!card || card.id === 'general') {
+      shareText = lang === 'en'
+        ? `I am playing gene46, an AI evolutionary simulation game! Check it out!`
+        : `AIをスワイプで進化淘汰させるシミュレーションゲーム「gene46」をプレイ中！みんなも遊んでみてね！`;
+    } else {
+      shareText = lang === 'en'
+        ? `Check out gene46, a genetic algorithm simulation game! I evolved a specimen to Gen ${card.generation}!`
+        : `スワイプでAIを進化させるシワイプシミュレーションゲーム「gene46」をプレイ中！第 ${card.generation} 世代の個体を保存しました！`;
+    }
+    const shareUrl = window.location.origin;
+
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: shareTitle,
+          text: shareText,
+          url: shareUrl,
+        });
+        logEvent('share_card', { card_id: card?.id || 'general', method: 'web_share' });
+      } catch (err: any) {
+        if (err.name !== 'AbortError') {
+          console.error('Error sharing:', err);
+        }
+      }
+    } else {
+      // Fallback: Copy link to clipboard
+      try {
+        await navigator.clipboard.writeText(`${shareText} ${shareUrl}`);
+        showMsg(lang === 'en' ? 'Link copied to clipboard!' : 'リンクをクリップボードにコピーしました！', 'success');
+        logEvent('share_card', { card_id: card?.id || 'general', method: 'clipboard' });
+      } catch (err) {
+        console.error('Clipboard copy failed:', err);
+        showMsg(lang === 'en' ? 'Failed to copy link.' : 'リンクのコピーに失敗しました。', 'error');
+      }
+    }
   };
 
   const CARD_FAVORITES_LIMIT = 10;
@@ -2088,7 +2156,21 @@ export default function App() {
                     <span className="px-2 py-0.5 text-[8px] rounded bg-purple-950/30 border border-purple-500/10 text-purple-300 font-medium">
                       {activeThread.type === 'line' ? (lang === 'en' ? 'Line' : 'ライン') : (lang === 'en' ? 'Mosaic' : 'モザイク')}
                     </span>
-                    <Star className="w-3.5 h-3.5 text-purple-400 fill-purple-400 group-hover:scale-110 transition-transform" />
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation(); // Prevent opening the threads screen
+                        playClick();
+                        toggleSaveThread(activeThread.id);
+                      }}
+                      className="p-1 hover:bg-purple-950/30 rounded transition-colors flex items-center justify-center flex-shrink-0"
+                      title={savedThreadIds.includes(activeThread.id) ? (lang === 'en' ? 'Remove from favorites' : 'お気に入り解除') : (lang === 'en' ? 'Add to favorites' : 'お気に入り登録')}
+                    >
+                      <Star className={`w-3.5 h-3.5 transition-all ${
+                        savedThreadIds.includes(activeThread.id)
+                          ? 'fill-purple-400 text-purple-400'
+                          : 'text-gray-500 hover:text-purple-400'
+                      }`} />
+                    </button>
                   </div>
                 </div>
               )}
@@ -2867,9 +2949,26 @@ export default function App() {
           </div>
         </div>
 
-        {/* Ad Section */}
-        {!staminaData.isAdFree && (
-          <AdBanner country={country} lang={lang} />
+        {/* App Promo Banner with Heartbeat Animation */}
+        {!isPwaInstalled && (
+          <motion.div
+            animate={{
+              scale: [1, 1.05, 0.98, 1.03, 1, 1],
+            }}
+            transition={{
+              duration: 1.5,
+              repeat: Infinity,
+              repeatDelay: 8.5,
+              ease: "easeInOut"
+            }}
+            className="w-full flex justify-center"
+          >
+            <AdBanner 
+              country={country} 
+              lang={lang} 
+              onInstallClick={handleInstallPwa} 
+            />
+          </motion.div>
         )}
       </footer>
 
@@ -3072,70 +3171,67 @@ export default function App() {
         {showDetailModal && selectedCard && (
           <div 
             onClick={() => setShowDetailModal(false)}
-            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-6"
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-6 overflow-y-auto"
           >
-            <motion.div
-              onClick={(e) => e.stopPropagation()}
+            {/* Wrapper to stack modal and close button vertically */}
+            <div className="flex flex-col items-center gap-5 my-auto">
+              <motion.div
+                onClick={(e) => e.stopPropagation()}
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="w-full max-w-sm bg-[#0a0b10] border border-gray-900 rounded-2xl p-6 shadow-2xl relative overflow-hidden flex flex-col gap-4"
+              className="w-full max-w-[340px] bg-[#0a0b10]/95 border border-gray-900 rounded-[32px] p-8 shadow-2xl relative overflow-hidden flex flex-col gap-6"
             >
               {/* Background gradient flare */}
               <div className="absolute top-[-50%] left-[-50%] w-[100%] h-[100%] rounded-full bg-purple-500/5 blur-[80px] pointer-events-none" />
 
-              <div className="flex items-center justify-between relative z-10 border-b border-gray-900 pb-3">
-                <div className="text-left min-w-0">
-                  <span className="text-[8px] uppercase tracking-widest text-purple-500 font-bold block">
-                    {selectedCard.threadName 
-                      ? (lang === 'en' ? `Project: ${selectedCard.threadName}` : `プロジェクト: ${selectedCard.threadName}`)
-                      : (lang === 'en' ? 'Card Details' : '画像詳細')}
-                  </span>
-                  <h3 className="text-xs font-bold text-gray-200 truncate">
-                    {lang === 'en' 
-                      ? `Gen ${selectedCard.generation} / ID: ${selectedCard.id.replace('line_', '').replace('mosaic_', '').substring(0, 8)}...`
-                      : `第 ${selectedCard.generation} 世代 / ID: ${selectedCard.id.replace('line_', '').replace('mosaic_', '').substring(0, 8)}...`}
-                  </h3>
-                </div>
-                <button
-                  onClick={() => setShowDetailModal(false)}
-                  className="p-1 text-gray-500 hover:text-gray-300 rounded-lg hover:bg-gray-900 transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* Centered Image Preview */}
-              <div className="relative z-10 w-full aspect-square rounded-2xl border border-gray-800 bg-black overflow-hidden flex items-center justify-center shadow-inner max-w-[260px] mx-auto">
-                {staminaData.lifetimeSwipes === 0 && selectedCard.id === cards[cards.length - 1]?.id ? (
-                  <div className="w-full h-full bg-white flex items-center justify-center">
-                    <span className="text-4xl md:text-5xl font-light text-gray-400 font-sans tracking-widest select-none">
-                      TEST
-                    </span>
-                  </div>
-                ) : selectedCard.type === 'line' ? (
-                  <LineCanvas dna={selectedCard.dna as LineDNA} className="w-full h-full" />
-                ) : (
-                  <MosaicCanvas dna={selectedCard.dna as MosaicDNA} className="w-full h-full" />
-                )}
+              {/* Centered Image Preview Wrapper with Backlight Halo (後光) */}
+              <div className="relative w-full max-w-[220px] mx-auto mb-5 flex-shrink-0 flex items-center justify-center">
+                {/* Backlight Glow Layers */}
+                <div className="absolute w-[130%] h-[130%] rounded-full bg-gradient-to-tr from-purple-500/35 via-indigo-500/25 to-purple-400/35 blur-3xl pointer-events-none z-0" />
+                <div className="absolute w-[110%] h-[110%] rounded-full bg-purple-600/20 blur-2xl pointer-events-none z-0" />
                 
-                {/* Micro badge for order */}
-                <div className="absolute bottom-2 right-2 px-2 py-0.5 rounded bg-black/70 border border-gray-800/50 text-[7px] text-gray-400 font-semibold tracking-wider uppercase select-none">
-                  {lang === 'en'
-                    ? `Card #${staminaData.lifetimeSwipes} in Total`
-                    : `累計 ${staminaData.lifetimeSwipes} 枚目の画像`}
+                {/* Centered Image Preview (Top position) */}
+                <div className="relative z-10 w-full aspect-square rounded-2xl border border-gray-800 bg-black overflow-hidden flex items-center justify-center shadow-inner">
+                  {staminaData.lifetimeSwipes === 0 && selectedCard.id === cards[cards.length - 1]?.id ? (
+                    <div className="w-full h-full bg-white flex items-center justify-center">
+                      <span className="text-4xl md:text-5xl font-light text-gray-400 font-sans tracking-widest select-none">
+                        TEST
+                      </span>
+                    </div>
+                  ) : selectedCard.type === 'line' ? (
+                    <LineCanvas dna={selectedCard.dna as LineDNA} className="w-full h-full" />
+                  ) : (
+                    <MosaicCanvas dna={selectedCard.dna as MosaicDNA} className="w-full h-full" />
+                  )}
                 </div>
               </div>
 
-              {/* Action Buttons */}
-              <div className="relative z-10 grid grid-cols-2 gap-2">
+              {/* Title & Metadata (Below Image) */}
+              <div className="relative z-10 text-left flex flex-col gap-2.5 px-1.5">
+                <h3 className="text-lg font-black text-gray-200 truncate leading-snug tracking-wide" title={selectedCard.threadName}>
+                  {selectedCard.threadName || (lang === 'en' ? 'Unnamed Project' : '無題のプロジェクト')}
+                </h3>
+                
+                {/* Generation, Index, and ID in a single line */}
+                <div className="text-[9.5px] text-gray-500 font-bold tracking-wider flex items-center justify-start gap-2">
+                  <span>{lang === 'en' ? `Gen ${selectedCard.generation}` : `第 ${selectedCard.generation} 世代`}</span>
+                  <span className="text-gray-800">•</span>
+                  <span>{lang === 'en' ? `${staminaData.lifetimeSwipes} swipes` : `${staminaData.lifetimeSwipes}枚目`}</span>
+                  <span className="text-gray-800">•</span>
+                  <span className="font-mono text-gray-600">ID:{selectedCard.id.replace('line_', '').replace('mosaic_', '').substring(0, 6)}</span>
+                </div>
+              </div>
+
+              {/* Rounded Action Buttons Grid (Download, Save, Share) */}
+              <div className="relative z-10 flex items-center justify-between px-6 mt-[-10px] mb-[-4px]">
                 {/* Download Button */}
                 <button
                   onClick={() => downloadCardAsPNG(selectedCard, selectedCard.type || 'line')}
-                  className="py-2.5 bg-gray-950/60 border border-gray-900 hover:border-purple-500/30 text-gray-200 hover:text-purple-300 rounded-xl text-[10px] font-bold transition-all flex items-center justify-center gap-1.5 shadow-md"
+                  className="w-11 h-11 bg-gray-950/60 border border-gray-900 hover:border-purple-500/40 text-gray-300 hover:text-purple-300 rounded-full transition-all flex items-center justify-center shadow-lg active:scale-90"
+                  title={lang === 'en' ? 'Download' : 'ダウンロード'}
                 >
-                  <Download className="w-3.5 h-3.5" />
-                  {lang === 'en' ? 'Download' : 'ダウンロード'}
+                  <Download className="w-4.5 h-4.5" />
                 </button>
 
                 {/* Save/Favorite Toggle */}
@@ -3144,31 +3240,52 @@ export default function App() {
                   return (
                     <button
                       onClick={() => toggleSaveCard(selectedCard)}
-                      className={`py-2.5 border rounded-xl text-[10px] font-bold transition-all flex items-center justify-center gap-1.5 shadow-md ${
+                      className={`w-11 h-11 border rounded-full transition-all flex items-center justify-center shadow-lg active:scale-90 ${
                         isSaved
-                          ? 'bg-purple-950/40 border-purple-500/40 text-purple-200 hover:bg-purple-900/30'
-                          : 'bg-gray-950/60 border-gray-900 hover:border-purple-500/30 text-gray-200 hover:text-purple-300'
+                          ? 'bg-purple-950/40 border-purple-500/40 text-purple-300 hover:bg-purple-900/30'
+                          : 'bg-gray-950/60 border-gray-900 hover:border-purple-500/40 text-gray-300 hover:text-purple-300'
                       }`}
+                      title={isSaved ? (lang === 'en' ? 'Unsave' : '保存解除') : (lang === 'en' ? 'Save' : '保存')}
                     >
-                      <Star className={`w-3.5 h-3.5 ${isSaved ? 'fill-purple-400 text-purple-400' : ''}`} />
-                      {isSaved 
-                        ? (lang === 'en' ? 'Remove Favorite' : '保存解除') 
-                        : (lang === 'en' ? 'Favorite Card' : 'お気に入り保存')}
+                      <Star className={`w-4.5 h-4.5 ${isSaved ? 'fill-purple-400 text-purple-400' : ''}`} />
                     </button>
                   );
                 })()}
+
+                {/* Share Button */}
+                <button
+                  onClick={() => handleShareCard(selectedCard)}
+                  className="w-11 h-11 bg-gray-950/60 border border-gray-900 hover:border-purple-500/40 text-gray-300 hover:text-purple-300 rounded-full transition-all flex items-center justify-center shadow-lg active:scale-90"
+                  title={lang === 'en' ? 'Share' : '共有'}
+                >
+                  <Share2 className="w-4.5 h-4.5" />
+                </button>
               </div>
 
               {/* Branching (Fork) Thread Section */}
-              <div className="relative z-10 border-t border-gray-900 pt-3 flex flex-col gap-2">
+              <div className="relative z-10 border-t border-gray-900 pt-4.5 flex flex-col gap-2">
                 {!forkingMode ? (
                   <button
                     onClick={() => setForkingMode(true)}
-                    className="w-full py-3 bg-gradient-to-r from-purple-600/90 to-indigo-600/90 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-purple-600/10 border border-purple-500/20"
+                    className="w-full py-3.5 px-4.5 bg-gray-950/60 border border-purple-950/40 hover:border-purple-500/40 text-white rounded-2xl text-xs font-bold transition-all flex items-center justify-between gap-3 shadow-md hover:shadow-purple-950/20 group relative overflow-hidden"
                   >
-                    <GitFork className="w-4 h-4 text-purple-200 animate-pulse" />
-                    {lang === 'en' ? 'Fork new project from this specimen' : 'この個体から分岐して新プロジェクトを作成'}
-                    <span className="text-[9px] opacity-75 font-semibold bg-black/40 px-1.5 py-0.5 rounded text-yellow-300">
+                    <div className="absolute inset-0 bg-gradient-to-r from-purple-500/5 to-indigo-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
+                    
+                    <div className="flex items-center gap-3 text-left relative z-10">
+                      <div className="p-2 rounded-xl bg-purple-950/30 border border-purple-900/30 group-hover:border-purple-500/30 group-hover:bg-purple-950/50 transition-all">
+                        <GitFork className="w-3.5 h-3.5 text-purple-400 group-hover:scale-110 transition-transform" />
+                      </div>
+                      <div className="leading-tight">
+                        <div className="text-[10px] text-gray-400 font-semibold tracking-wide">
+                          {lang === 'en' ? 'Fork new project' : 'この個体から分岐して'}
+                        </div>
+                        <div className="text-[11px] text-purple-400 font-extrabold mt-0.5 tracking-wider">
+                          {lang === 'en' ? 'from this specimen' : '新プロジェクトを作成'}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <span className="relative z-10 text-[9px] font-extrabold bg-purple-950/60 border border-purple-900/40 px-2 py-1 rounded-lg text-yellow-400 shadow-inner flex items-center gap-0.5 whitespace-nowrap flex-shrink-0">
                       <BlueFire /> 1000 Soul
                     </span>
                   </button>
@@ -3222,7 +3339,21 @@ export default function App() {
                   </form>
                 )}
               </div>
-            </motion.div>
+              </motion.div>
+
+              {/* Close Button Outside at the Bottom Center */}
+              <motion.button
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.8 }}
+                transition={{ delay: 0.05 }}
+                onClick={() => setShowDetailModal(false)}
+                className="p-3 bg-gray-900/60 border border-gray-800 hover:border-purple-500/40 text-gray-400 hover:text-white rounded-full transition-all shadow-xl backdrop-blur-sm active:scale-90 hover:scale-105 flex items-center justify-center"
+                title={lang === 'en' ? 'Close' : '閉じる'}
+              >
+                <X className="w-5 h-5" />
+              </motion.button>
+            </div>
           </div>
         )}
       </AnimatePresence>

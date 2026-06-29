@@ -1,0 +1,5 @@
+name = "heredity-frontend"
+compatibility_date = "2024-01-01"
+pages_build_output_dir = "frontend/dist"
+# Optional: add your account ID if needed
+# account_id = "your_account_id"
