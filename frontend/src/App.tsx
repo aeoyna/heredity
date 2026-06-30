@@ -1051,7 +1051,12 @@ export default function App() {
         if (data.generation !== generationRef.current) {
           swipedCardIdsRef.current = [];
           if (append) {
-            showMsg(`All specimens swiped! Auto-evolved to Gen ${data.generation}`, 'success');
+            showMsg(
+              lang === 'ja'
+                ? `すべての個体をスワイプ完了！${data.generation}世代へ自動進化しました`
+                : `All specimens swiped! Auto-evolved to Gen ${data.generation}`,
+              'success'
+            );
             playEvolve();
             setNewGenNotification(data.generation);
             logEvent('thread_evolve', { thread_id: activeThreadId || '', generation: data.generation });
@@ -1067,9 +1072,16 @@ export default function App() {
       console.error('Failed to fetch cards:', err);
       let errorMsg = err.message || 'Unknown error';
       if (err.message && err.message.includes('Failed to fetch') && window.location.hostname === 'localhost') {
-        errorMsg = 'Cannot connect to local backend. Make sure the local Wrangler dev server is running on port 8787.';
+        errorMsg = lang === 'ja'
+          ? 'ローカルのバックエンドに接続できません。Wrangler開発サーバーがポート8787で起動しているか確認してください。'
+          : 'Cannot connect to local backend. Make sure the local Wrangler dev server is running on port 8787.';
       }
-      showMsg(`Failed to fetch cards: ${errorMsg}`, 'error');
+      showMsg(
+        lang === 'ja'
+          ? `カードの取得に失敗しました: ${errorMsg}`
+          : `Failed to fetch cards: ${errorMsg}`,
+        'error'
+      );
       playError();
     } finally {
       setLoading(false);
@@ -2223,9 +2235,11 @@ export default function App() {
                       className="absolute z-40 pointer-events-none flex flex-col items-center justify-center bg-black/80 border border-purple-500/20 px-8 py-6 rounded-3xl shadow-[0_0_40px_rgba(168,85,247,0.35)] backdrop-blur-md"
                       style={{ fontFamily: "'Outfit', sans-serif" }}
                     >
-                      <span className="text-[9px] text-purple-400 font-extrabold uppercase tracking-[0.25em] mb-1">Evolution Advanced</span>
+                      <span className="text-[9px] text-purple-400 font-extrabold uppercase tracking-[0.25em] mb-1">
+                        {lang === 'ja' ? '進化完了' : 'Evolution Advanced'}
+                      </span>
                       <h2 className="text-3xl font-black bg-clip-text text-transparent bg-gradient-to-r from-yellow-300 via-pink-400 to-purple-400 drop-shadow-[0_0_8px_rgba(253,224,71,0.5)]">
-                        {newGenNotification}世代
+                        {lang === 'ja' ? `${newGenNotification}世代` : `Gen ${newGenNotification}`}
                       </h2>
                     </motion.div>
                   )}
@@ -4290,9 +4304,13 @@ export default function App() {
             >
               <div className="flex items-center gap-1 text-yellow-300 font-extrabold uppercase tracking-widest text-xs py-1.5 px-4 bg-black/80 border border-yellow-500/30 rounded-full shadow-2xl backdrop-blur-md">
                 <Sparkles className="w-4 h-4 animate-spin" />
-                <span>25 Swipes Charged!</span>
+                <span>
+                  {lang === 'ja' ? '25スワイプ チャージ完了！' : '25 Swipes Charged!'}
+                </span>
               </div>
-              <span className="text-[9px] font-mono text-cyan-300 uppercase tracking-widest font-bold">Synchronizing Evolution...</span>
+              <span className="text-[9px] font-mono text-cyan-300 uppercase tracking-widest font-bold">
+                {lang === 'ja' ? '進化の同期中...' : 'Synchronizing Evolution...'}
+              </span>
             </motion.div>
           </motion.div>
         )}
