@@ -4336,44 +4336,47 @@ export default function App() {
               <div className="px-4 py-2 rounded-xl bg-gray-900 border border-gray-800 text-xs font-semibold text-gray-200">
                 {lang === 'ja' ? '回復まで:' : 'Next recovery:'} <span className="text-purple-400 font-bold">{nextRecoverySeconds}{lang === 'ja' ? '秒' : 's'}</span>
               </div>
-              <div className="text-[9px] text-gray-500 uppercase tracking-widest font-semibold text-center mt-1 space-y-0.5">
-                <div>{lang === 'ja' ? '現在のスワイプ上限: ' : 'Current Swipe Limit: '}<span className="text-gray-300 font-bold">{staminaData.maxStamina}</span></div>
-                <div>{lang === 'ja' ? '所持ソウル: ' : 'Souls Owned: '}<span className="text-yellow-300 font-bold"><BlueFire /> {staminaData.souls} Soul</span></div>
-              </div>
-              <button
-                onClick={() => {
-                  playClick();
-                  setShowStaminaModal(false);
-                  setView('shop');
-                }}
-                className="px-4 py-2 text-xs font-semibold bg-gradient-to-r from-purple-600 to-indigo-600 rounded-lg hover:from-purple-500 hover:to-indigo-500 text-white transition-colors shadow-md flex items-center gap-1 border border-purple-500/20 w-full justify-center"
-              >
-                <Sparkles className="w-3.5 h-3.5 text-yellow-300 animate-pulse" />
-                {lang === 'ja' ? 'ショップを開く' : 'Open Shop'}
-              </button>
-
-              {/* PWA recommendation banner */}
-              {!isPwaInstalled && (
-                <div className="w-full max-w-[280px] mt-2 p-2.5 bg-indigo-950/20 border border-indigo-500/10 rounded-xl flex flex-col items-center gap-1.5 backdrop-blur-sm relative z-10">
-                  <span className="text-[8px] uppercase tracking-widest text-indigo-400 font-extrabold flex items-center gap-1">
-                    {lang === 'ja' ? '💡 アプリ（PWA）の追加' : '💡 Add App (PWA)'}
-                  </span>
-                  <p className="text-[9px] text-gray-400 text-center leading-relaxed font-medium">
-                    {lang === 'ja' ? '忘れないようにホーム画面にアプリを追加しませんか？' : 'Would you like to add this app to your home screen?'}
-                  </p>
+              <div className="w-full mt-2">
+                {!isPwaInstalled ? (
+                  <div className="grid grid-cols-2 gap-3 w-full">
+                    <button
+                      onClick={() => {
+                        playClick();
+                        setShowStaminaModal(false);
+                        setView('shop');
+                      }}
+                      className="px-3 py-2.5 text-xs font-bold bg-gradient-to-r from-purple-600 to-indigo-600 rounded-xl hover:from-purple-500 hover:to-indigo-500 text-white transition-all shadow-md flex items-center justify-center gap-1.5 border border-purple-500/20 active:scale-[0.98]"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
+                      {lang === 'ja' ? 'ショップ' : 'Shop'}
+                    </button>
+                    <button
+                      onClick={() => {
+                        playClick();
+                        handleInstallPwa();
+                      }}
+                      className="px-3 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-[0.98] flex items-center justify-center gap-1.5"
+                    >
+                      <Download className="w-3.5 h-3.5 text-indigo-200" />
+                      {deferredPrompt
+                        ? (lang === 'ja' ? 'アプリを追加' : 'Add App')
+                        : (lang === 'ja' ? '導入方法' : 'PWA Info')}
+                    </button>
+                  </div>
+                ) : (
                   <button
                     onClick={() => {
                       playClick();
-                      handleInstallPwa();
+                      setShowStaminaModal(false);
+                      setView('shop');
                     }}
-                    className="w-full mt-1 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[10px] font-bold transition-all shadow-md active:scale-[0.98]"
+                    className="w-full px-4 py-2.5 text-xs font-bold bg-gradient-to-r from-purple-600 to-indigo-600 rounded-xl hover:from-purple-500 hover:to-indigo-500 text-white transition-all shadow-md flex items-center justify-center gap-1.5 border border-purple-500/20 active:scale-[0.98]"
                   >
-                    {deferredPrompt
-                      ? (lang === 'ja' ? 'アプリをインストール' : 'Install App')
-                      : (lang === 'ja' ? 'インストール方法を見る' : 'View Installation Guide')}
+                    <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
+                    {lang === 'ja' ? 'ショップを開く' : 'Open Shop'}
                   </button>
-                </div>
-              )}
+                )}
+              </div>
             </motion.div>
           </div>
         )}
