@@ -224,8 +224,6 @@ export default function App() {
   const [galleryLoading, setGalleryLoading] = useState<boolean>(false);
   const [historyViewMode, setHistoryViewMode] = useState<'grid' | 'flipbook'>('flipbook');
   const [flipbookIndex, setFlipbookIndex] = useState<number>(0);
-  const [isPlayActive, setIsPlayActive] = useState<boolean>(false);
-  const [playSpeed, setPlaySpeed] = useState<number>(300);
 
   // App View State ('swipe' for swiping cards, 'threads' for threads explorer, 'shop' for soul shop)
   const [view, setView] = useState<'swipe' | 'threads' | 'shop'>('swipe');
@@ -1002,7 +1000,6 @@ export default function App() {
       if (historyData.history) {
         setHistorySpecimens(historyData.history);
         setFlipbookIndex(historyData.history.length - 1);
-        setIsPlayActive(historyData.history.length > 1);
         // Use the last history specimen as a preview icon for this thread
         if (historyData.history.length > 0 && activeThreadId) {
           const latest = historyData.history[historyData.history.length - 1];
@@ -1018,26 +1015,6 @@ export default function App() {
       setGalleryLoading(false);
     }
   }, [activeThreadId]);
-
-  // flipbook animation player logic
-  useEffect(() => {
-    let intervalId: any;
-    if (isPlayActive && historySpecimens.length > 0) {
-      intervalId = setInterval(() => {
-        setFlipbookIndex((prev) => (prev - 1 + historySpecimens.length) % historySpecimens.length);
-      }, playSpeed);
-    }
-    return () => {
-      if (intervalId) clearInterval(intervalId);
-    };
-  }, [isPlayActive, historySpecimens.length, playSpeed]);
-
-  // Stop auto play when the modal is closed
-  useEffect(() => {
-    if (!showHistoryModal) {
-      setIsPlayActive(false);
-    }
-  }, [showHistoryModal]);
 
   const fetchCards = useCallback(async (append = false, currentDeckIds?: string[], lastSwipedCardId?: string) => {
     if (!activeThreadId) return;
@@ -3075,80 +3052,10 @@ export default function App() {
                         max={historySpecimens.length - 1}
                         value={historySpecimens.length - 1 - flipbookIndex}
                         onChange={(e) => {
-                          setIsPlayActive(false);
                           setFlipbookIndex(historySpecimens.length - 1 - parseInt(e.target.value, 10));
                         }}
                         className="w-full accent-purple-500 bg-gray-900 rounded-lg h-1 appearance-none cursor-pointer"
                       />
-                    </div>
-
-                    {/* Playback Controls */}
-                    <div className="flex items-center justify-center gap-3">
-                      {/* Prev Frame (Go back in time, increase index) */}
-                      <button
-                        onClick={() => {
-                          playClick();
-                          setIsPlayActive(false);
-                          setFlipbookIndex((prev) => (prev + 1) % historySpecimens.length);
-                        }}
-                        className="w-8 h-8 flex items-center justify-center bg-gray-900 border border-gray-800 text-gray-400 hover:text-white rounded-lg transition-colors active:scale-95 text-xs font-bold"
-                        title="前へ"
-                      >
-                        ◀
-                      </button>
-
-                      {/* Play / Pause */}
-                      <button
-                        onClick={() => {
-                          playClick();
-                          setIsPlayActive(!isPlayActive);
-                        }}
-                        className={`px-5 py-2 text-xs font-extrabold rounded-lg transition-all shadow-md active:scale-95 w-24 text-center ${
-                          isPlayActive
-                            ? 'bg-rose-600 hover:bg-rose-500 text-white'
-                            : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white'
-                        }`}
-                      >
-                        {isPlayActive ? 'PAUSE' : 'PLAY'}
-                      </button>
-
-                      {/* Next Frame (Go forward in time, decrease index) */}
-                      <button
-                        onClick={() => {
-                          playClick();
-                          setIsPlayActive(false);
-                          setFlipbookIndex((prev) => (prev - 1 + historySpecimens.length) % historySpecimens.length);
-                        }}
-                        className="w-8 h-8 flex items-center justify-center bg-gray-900 border border-gray-800 text-gray-400 hover:text-white rounded-lg transition-colors active:scale-95 text-xs font-bold"
-                        title="次へ"
-                      >
-                        ▶
-                      </button>
-                    </div>
-
-                    {/* Speed Controls */}
-                    <div className="flex items-center gap-2 text-[9px] text-gray-400 font-bold bg-gray-950/40 px-3 py-1.5 border border-gray-900/60 rounded-xl w-full justify-center">
-                      <span>{lang === 'ja' ? '再生速度:' : 'Speed:'}</span>
-                      {[
-                        { label: lang === 'ja' ? '遅い' : 'Slow', value: 500 },
-                        { label: lang === 'ja' ? '標準' : 'Normal', value: 300 },
-                        { label: lang === 'ja' ? '速い' : 'Fast', value: 120 }
-                      ].map((speedOpt) => (
-                        <button
-                          key={speedOpt.value}
-                          onClick={() => {
-                            playClick();
-                            setPlaySpeed(speedOpt.value);
-                          }}
-                          className={`px-2 py-0.5 rounded transition-colors ${
-                            playSpeed === speedOpt.value
-                              ? 'bg-purple-950 border border-purple-500/30 text-purple-300'
-                              : 'bg-transparent text-gray-500 hover:text-gray-300'
-                          }`}
-                        >
-                          {speedOpt.label}
-                        </button>
-                      ))}
                     </div>
                   </div>
                 ) : (
