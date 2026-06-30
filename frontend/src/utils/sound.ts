@@ -88,8 +88,8 @@ export const playSwipeLike = () => {
 // Softer downward sine note for swipe nope
 export const playSwipeNope = () => {
   const now = 0;
-  playNote(392.00, 'sine', 0.08, 0.08, 0.0001, now);       // G4
-  playNote(329.63, 'sine', 0.12, 0.06, 0.0001, now + 0.04);  // E4
+  playNote(261.63, 'sine', 0.08, 0.08, 0.0001, now);       // C4
+  playNote(196.00, 'sine', 0.12, 0.06, 0.0001, now + 0.04);  // G3
 };
 
 // Sparkly arpeggio for auto evolve (Gen mutation)
