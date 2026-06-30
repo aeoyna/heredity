@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Activity, Sparkles, RefreshCw, ShieldAlert, Plus, X, Star, Trash2, ShoppingCart, List, Diamond, Download, GitFork, Dna, Copy, Pencil, Battery, ArrowUpCircle, Search, Volume2, VolumeX, Share2 } from 'lucide-react';
+import { Activity, Sparkles, RefreshCw, ShieldAlert, Plus, X, Star, Trash2, ShoppingCart, List, Diamond, Download, GitFork, Dna, Copy, Pencil, Battery, ArrowUpCircle, Search, Volume2, VolumeX, Share2, ShoppingBag, Users } from 'lucide-react';
 import type { LineDNA, MosaicDNA } from '../../backend/src/shared-types';
 import { SwipeCard } from './components/SwipeCard';
 import { LineCanvas } from './components/LineCanvas';
@@ -1681,6 +1681,31 @@ export default function App() {
       setDeferredPrompt(null);
     } catch (e) {
       console.error('PWA install error:', e);
+    }
+  };
+
+  const handleShare = async () => {
+    playClick();
+    const shareData = {
+      title: 'gene46',
+      text: lang === 'ja'
+        ? 'スワイプ遺伝的アルゴリズム進化システム「gene46」で遊ぼう！'
+        : 'Play gene46 - Swipe Genetic Algorithm Evolution System!',
+      url: 'https://gene46.net/'
+    };
+    if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
+      try {
+        await navigator.share(shareData);
+      } catch (err) {
+        console.log('Share cancelled or failed:', err);
+      }
+    } else {
+      try {
+        await navigator.clipboard.writeText('https://gene46.net/');
+        showMsg(lang === 'ja' ? 'リンクをコピーしました！' : 'Link copied to clipboard!', 'success');
+      } catch (err) {
+        showMsg(lang === 'ja' ? 'コピーに失敗しました' : 'Failed to copy link', 'error');
+      }
     }
   };
 
@@ -4355,45 +4380,26 @@ export default function App() {
                 {lang === 'ja' ? '回復まで:' : 'Next recovery:'} <span className="text-purple-400 font-bold">{nextRecoverySeconds}{lang === 'ja' ? '秒' : 's'}</span>
               </div>
               <div className="w-full mt-2">
-                {!isPwaInstalled ? (
-                  <div className="grid grid-cols-2 gap-3 w-full">
-                    <button
-                      onClick={() => {
-                        playClick();
-                        setShowStaminaModal(false);
-                        setView('shop');
-                      }}
-                      className="px-3 py-2.5 text-xs font-bold bg-gradient-to-r from-purple-600 to-indigo-600 rounded-xl hover:from-purple-500 hover:to-indigo-500 text-white transition-all shadow-md flex items-center justify-center gap-1.5 border border-purple-500/20 active:scale-[0.98]"
-                    >
-                      <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
-                      {lang === 'ja' ? 'ショップ' : 'Shop'}
-                    </button>
-                    <button
-                      onClick={() => {
-                        playClick();
-                        handleInstallPwa();
-                      }}
-                      className="px-3 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-[0.98] flex items-center justify-center gap-1.5"
-                    >
-                      <Download className="w-3.5 h-3.5 text-indigo-200" />
-                      {deferredPrompt
-                        ? (lang === 'ja' ? 'アプリを追加' : 'Add App')
-                        : (lang === 'ja' ? '導入方法' : 'PWA Info')}
-                    </button>
-                  </div>
-                ) : (
+                <div className="grid grid-cols-2 gap-3 w-full">
                   <button
                     onClick={() => {
                       playClick();
                       setShowStaminaModal(false);
                       setView('shop');
                     }}
-                    className="w-full px-4 py-2.5 text-xs font-bold bg-gradient-to-r from-purple-600 to-indigo-600 rounded-xl hover:from-purple-500 hover:to-indigo-500 text-white transition-all shadow-md flex items-center justify-center gap-1.5 border border-purple-500/20 active:scale-[0.98]"
+                    className="px-3 py-2.5 text-xs font-bold bg-gradient-to-r from-rose-500 to-fuchsia-600 hover:from-rose-400 hover:to-fuchsia-500 text-white transition-all shadow-md flex items-center justify-center gap-1.5 rounded-2xl active:scale-[0.98] border border-rose-400/20"
                   >
-                    <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
-                    {lang === 'ja' ? 'ショップを開く' : 'Open Shop'}
+                    <ShoppingBag className="w-3.5 h-3.5 text-white" />
+                    {lang === 'ja' ? 'ショップ' : 'Shop'}
                   </button>
-                )}
+                  <button
+                    onClick={handleShare}
+                    className="px-3 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-500 hover:from-blue-500 hover:to-indigo-400 text-white rounded-2xl text-xs font-bold transition-all shadow-md active:scale-[0.98] flex items-center justify-center gap-1.5 border border-blue-400/20"
+                  >
+                    <Users className="w-3.5 h-3.5 text-blue-100" />
+                    {lang === 'ja' ? '仲間を呼ぶ' : 'Invite Friends'}
+                  </button>
+                </div>
               </div>
             </motion.div>
           </div>
