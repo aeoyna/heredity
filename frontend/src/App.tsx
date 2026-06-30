@@ -214,6 +214,7 @@ export default function App() {
   const [newThreadName, setNewThreadName] = useState<string>('');
   const [newThreadType, setNewThreadType] = useState<'line' | 'mosaic'>('line');
   const [creatingThread, setCreatingThread] = useState<boolean>(false);
+  const [showStaminaModal, setShowStaminaModal] = useState<boolean>(false);
 
   // History Gallery State
   const [showHistoryModal, setShowHistoryModal] = useState<boolean>(false);
@@ -221,6 +222,10 @@ export default function App() {
   // Per-thread latest card preview (populated lazily as user visits threads)
   const [threadPreviews, setThreadPreviews] = useState<Record<string, { dna: any; type: 'line' | 'mosaic' }>>({});
   const [galleryLoading, setGalleryLoading] = useState<boolean>(false);
+  const [historyViewMode, setHistoryViewMode] = useState<'grid' | 'flipbook'>('flipbook');
+  const [flipbookIndex, setFlipbookIndex] = useState<number>(0);
+  const [isPlayActive, setIsPlayActive] = useState<boolean>(false);
+  const [playSpeed, setPlaySpeed] = useState<number>(300);
 
   // App View State ('swipe' for swiping cards, 'threads' for threads explorer, 'shop' for soul shop)
   const [view, setView] = useState<'swipe' | 'threads' | 'shop'>('swipe');
@@ -996,6 +1001,8 @@ export default function App() {
       const historyData = await historyRes.json();
       if (historyData.history) {
         setHistorySpecimens(historyData.history);
+        setFlipbookIndex(0);
+        setIsPlayActive(historyData.history.length > 1);
         // Use the last history specimen as a preview icon for this thread
         if (historyData.history.length > 0 && activeThreadId) {
           const latest = historyData.history[historyData.history.length - 1];
@@ -1011,6 +1018,26 @@ export default function App() {
       setGalleryLoading(false);
     }
   }, [activeThreadId]);
+
+  // flipbook animation player logic
+  useEffect(() => {
+    let intervalId: any;
+    if (isPlayActive && historySpecimens.length > 0) {
+      intervalId = setInterval(() => {
+        setFlipbookIndex((prev) => (prev + 1) % historySpecimens.length);
+      }, playSpeed);
+    }
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [isPlayActive, historySpecimens.length, playSpeed]);
+
+  // Stop auto play when the modal is closed
+  useEffect(() => {
+    if (!showHistoryModal) {
+      setIsPlayActive(false);
+    }
+  }, [showHistoryModal]);
 
   const fetchCards = useCallback(async (append = false, currentDeckIds?: string[], lastSwipedCardId?: string) => {
     if (!activeThreadId) return;
@@ -1247,7 +1274,7 @@ export default function App() {
     const isAd = card?.is_honeypot === true;
 
     if (!isAd && staminaData.stamina <= 0 && staminaData.maxStamina < 9999) {
-      showMsg(lang === 'en' ? 'No stamina left!' : 'スタミナがありません！', 'error');
+      setShowStaminaModal(true);
       playError();
       return;
     }
@@ -2284,62 +2311,6 @@ export default function App() {
                       Refresh Pool
                     </button>
                   </div>
-                ) : (staminaData.stamina <= 0 && staminaData.maxStamina < 9999) ? (
-                  <div className="text-center p-6 bg-gray-950/40 border border-gray-900 rounded-2xl flex flex-col items-center justify-center gap-4 w-full h-full relative overflow-hidden">
-                    <div className="absolute top-[-20%] left-[-20%] w-[60%] h-[60%] rounded-full bg-rose-950/20 blur-[50px] pointer-events-none" />
-                    <div className="relative">
-                      <Activity className="w-12 h-12 text-rose-500 animate-pulse" />
-                      <div className="absolute inset-0 bg-rose-500/20 blur-xl rounded-full" />
-                    </div>
-                    <div>
-                      <p className="text-rose-400 font-bold text-sm tracking-wider">
-                        {lang === 'ja' ? 'スタミナ切れ' : 'Out of Stamina'}
-                      </p>
-                      <p className="text-gray-400 text-[10px] mt-1 uppercase tracking-wider">
-                        {lang === 'ja' ? '時間経過で徐々に回復します' : 'Recovers gradually over time'}
-                      </p>
-                    </div>
-                    <div className="px-4 py-2 rounded-xl bg-gray-900 border border-gray-800 text-xs font-semibold text-gray-200">
-                      {lang === 'ja' ? '回復まで:' : 'Next recovery:'} <span className="text-purple-400 font-bold">{nextRecoverySeconds}{lang === 'ja' ? '秒' : 's'}</span>
-                    </div>
-                    <div className="text-[9px] text-gray-500 uppercase tracking-widest font-semibold text-center mt-1 space-y-0.5">
-                      <div>{lang === 'ja' ? '現在のスワイプ上限: ' : 'Current Swipe Limit: '}<span className="text-gray-300 font-bold">{staminaData.maxStamina}</span></div>
-                      <div>{lang === 'ja' ? '所持ソウル: ' : 'Souls Owned: '}<span className="text-yellow-300 font-bold"><BlueFire /> {staminaData.souls} Soul</span></div>
-                    </div>
-                    <button
-                      onClick={() => {
-                        playClick();
-                        setView('shop');
-                      }}
-                      className="px-4 py-2 text-xs font-semibold bg-gradient-to-r from-purple-600 to-indigo-600 rounded-lg hover:from-purple-500 hover:to-indigo-500 text-white transition-colors shadow-md flex items-center gap-1 border border-purple-500/20"
-                    >
-                      <Sparkles className="w-3.5 h-3.5 text-yellow-300 animate-pulse" />
-                      {lang === 'ja' ? 'ショップを開く' : 'Open Shop'}
-                    </button>
-
-                    {/* PWA recommendation banner */}
-                    {!isPwaInstalled && (
-                      <div className="w-full max-w-[280px] mt-2 p-2.5 bg-indigo-950/20 border border-indigo-500/10 rounded-xl flex flex-col items-center gap-1.5 backdrop-blur-sm relative z-10">
-                        <span className="text-[8px] uppercase tracking-widest text-indigo-400 font-extrabold flex items-center gap-1">
-                          {lang === 'ja' ? '💡 アプリ（PWA）の追加' : '💡 Add App (PWA)'}
-                        </span>
-                        <p className="text-[9px] text-gray-400 text-center leading-relaxed font-medium">
-                          {lang === 'ja' ? '忘れないようにホーム画面にアプリを追加しませんか？' : 'Would you like to add this app to your home screen?'}
-                        </p>
-                        <button
-                          onClick={() => {
-                            playClick();
-                            handleInstallPwa();
-                          }}
-                          className="w-full mt-1 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[10px] font-bold transition-all shadow-md active:scale-[0.98]"
-                        >
-                          {deferredPrompt
-                            ? (lang === 'ja' ? 'アプリをインストール' : 'Install App')
-                            : (lang === 'ja' ? 'インストール方法を見る' : 'View Installation Guide')}
-                        </button>
-                      </div>
-                    )}
-                  </div>
                 ) : (
                   <div className="w-full h-full relative">
                     {cards
@@ -2369,10 +2340,16 @@ export default function App() {
                           }}
                         >
                           {staminaData.lifetimeSwipes === 0 && isActive ? (
-                            <div className="w-full h-full bg-white flex items-center justify-center">
-                              <span className="text-4xl md:text-5xl font-light text-gray-400 font-sans tracking-widest select-none">
+                            <div className="w-full h-full bg-white flex flex-col items-center justify-center p-6 text-center select-none">
+                              <span className="text-4xl md:text-5xl font-light text-gray-400 font-sans tracking-widest mb-4">
                                 TEST
                               </span>
+                              <p className="text-gray-500 text-xs font-semibold leading-relaxed">
+                                カードを左右にスワイプしてお題を完成させよう!
+                              </p>
+                              <p className="text-gray-400 text-[10px] font-medium leading-relaxed mt-1">
+                                Swipe cards left or right to complete the theme!
+                              </p>
                             </div>
                           ) : card.is_honeypot ? (
                             <NoiseCard requiredSwipe={card.required_swipe} />
@@ -3004,8 +2981,40 @@ export default function App() {
                 </button>
               </div>
 
+              {/* Tabs */}
+              {!galleryLoading && historySpecimens.length > 0 && (
+                <div className="flex border-b border-gray-900 mb-4 relative z-10 text-[10px] font-bold">
+                  <button
+                    onClick={() => {
+                      playClick();
+                      setHistoryViewMode('flipbook');
+                    }}
+                    className={`flex-1 py-2 text-center border-b-2 transition-all ${
+                      historyViewMode === 'flipbook'
+                        ? 'border-purple-500 text-purple-400'
+                        : 'border-transparent text-gray-500 hover:text-gray-300'
+                    }`}
+                  >
+                    {lang === 'ja' ? 'パラパラ漫画' : 'Flipbook'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      playClick();
+                      setHistoryViewMode('grid');
+                    }}
+                    className={`flex-1 py-2 text-center border-b-2 transition-all ${
+                      historyViewMode === 'grid'
+                        ? 'border-purple-500 text-purple-400'
+                        : 'border-transparent text-gray-500 hover:text-gray-300'
+                    }`}
+                  >
+                    {lang === 'ja' ? 'ギャラリー' : 'Grid'}
+                  </button>
+                </div>
+              )}
+
               {/* History Content */}
-              <div className="relative z-10 max-h-[300px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-purple-900 scrollbar-track-transparent">
+              <div className="relative z-10">
                 {galleryLoading ? (
                   <div className="flex justify-center items-center py-12">
                     <RefreshCw className="w-5 h-5 text-purple-500 animate-spin" />
@@ -3014,8 +3023,136 @@ export default function App() {
                   <div className="text-center py-12 text-gray-600 text-[10px] uppercase tracking-wider font-semibold">
                     No history recorded yet.<br/>Evolve the thread to see past generations!
                   </div>
+                ) : historyViewMode === 'flipbook' ? (
+                  <div className="flex flex-col items-center gap-4">
+                    {/* Big Canvas Container */}
+                    <div 
+                      onClick={() => {
+                        if (!historySpecimens[flipbookIndex]) return;
+                        playClick();
+                        setSelectedCard({
+                          id: historySpecimens[flipbookIndex].id,
+                          generation: historySpecimens[flipbookIndex].generation,
+                          dna: historySpecimens[flipbookIndex].dna,
+                          threadId: activeThreadId || undefined,
+                          threadName: activeThread?.name,
+                          type: mode
+                        });
+                        setForkingMode(false);
+                        setForkThreadName('');
+                        setShowHistoryModal(false);
+                        setShowDetailModal(true);
+                      }}
+                      className="w-full max-w-[200px] aspect-square rounded-2xl overflow-hidden bg-black border border-gray-900 relative flex items-center justify-center shadow-xl cursor-pointer hover:border-purple-500/40 transition-all active:scale-[0.98] group"
+                    >
+                      {historySpecimens[flipbookIndex] && (
+                        <>
+                          {mode === 'line' ? (
+                            <LineCanvas dna={historySpecimens[flipbookIndex].dna as LineDNA} />
+                          ) : (
+                            <MosaicCanvas dna={historySpecimens[flipbookIndex].dna as MosaicDNA} />
+                          )}
+                          <span className="absolute bottom-2 left-2 px-2 py-0.5 rounded bg-black/75 text-[8px] text-purple-300 font-bold border border-purple-500/20">
+                            Gen {historySpecimens[flipbookIndex].generation}
+                          </span>
+                          <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-black/75 text-[6px] text-gray-400 font-bold border border-gray-800/50 opacity-0 group-hover:opacity-100 transition-opacity">
+                            {lang === 'en' ? 'Tap for Details' : 'タップで詳細'}
+                          </span>
+                        </>
+                      )}
+                    </div>
+
+                    {/* Progress Slider */}
+                    <div className="w-full px-2 flex flex-col gap-1.5">
+                      <div className="flex justify-between text-[8px] text-gray-500 font-bold tracking-wider">
+                        <span>GEN {historySpecimens[0]?.generation}</span>
+                        <span>{flipbookIndex + 1} / {historySpecimens.length}</span>
+                        <span>GEN {historySpecimens[historySpecimens.length - 1]?.generation}</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max={historySpecimens.length - 1}
+                        value={flipbookIndex}
+                        onChange={(e) => {
+                          setIsPlayActive(false);
+                          setFlipbookIndex(parseInt(e.target.value, 10));
+                        }}
+                        className="w-full accent-purple-500 bg-gray-900 rounded-lg h-1 appearance-none cursor-pointer"
+                      />
+                    </div>
+
+                    {/* Playback Controls */}
+                    <div className="flex items-center justify-center gap-3">
+                      {/* Prev Frame */}
+                      <button
+                        onClick={() => {
+                          playClick();
+                          setIsPlayActive(false);
+                          setFlipbookIndex((prev) => (prev - 1 + historySpecimens.length) % historySpecimens.length);
+                        }}
+                        className="w-8 h-8 flex items-center justify-center bg-gray-900 border border-gray-800 text-gray-400 hover:text-white rounded-lg transition-colors active:scale-95 text-xs font-bold"
+                        title="前へ"
+                      >
+                        ◀
+                      </button>
+
+                      {/* Play / Pause */}
+                      <button
+                        onClick={() => {
+                          playClick();
+                          setIsPlayActive(!isPlayActive);
+                        }}
+                        className={`px-5 py-2 text-xs font-extrabold rounded-lg transition-all shadow-md active:scale-95 w-24 text-center ${
+                          isPlayActive
+                            ? 'bg-rose-600 hover:bg-rose-500 text-white'
+                            : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white'
+                        }`}
+                      >
+                        {isPlayActive ? 'PAUSE' : 'PLAY'}
+                      </button>
+
+                      {/* Next Frame */}
+                      <button
+                        onClick={() => {
+                          playClick();
+                          setIsPlayActive(false);
+                          setFlipbookIndex((prev) => (prev + 1) % historySpecimens.length);
+                        }}
+                        className="w-8 h-8 flex items-center justify-center bg-gray-900 border border-gray-800 text-gray-400 hover:text-white rounded-lg transition-colors active:scale-95 text-xs font-bold"
+                        title="次へ"
+                      >
+                        ▶
+                      </button>
+                    </div>
+
+                    {/* Speed Controls */}
+                    <div className="flex items-center gap-2 text-[9px] text-gray-400 font-bold bg-gray-950/40 px-3 py-1.5 border border-gray-900/60 rounded-xl w-full justify-center">
+                      <span>{lang === 'ja' ? '再生速度:' : 'Speed:'}</span>
+                      {[
+                        { label: lang === 'ja' ? '遅い' : 'Slow', value: 500 },
+                        { label: lang === 'ja' ? '標準' : 'Normal', value: 300 },
+                        { label: lang === 'ja' ? '速い' : 'Fast', value: 120 }
+                      ].map((speedOpt) => (
+                        <button
+                          key={speedOpt.value}
+                          onClick={() => {
+                            playClick();
+                            setPlaySpeed(speedOpt.value);
+                          }}
+                          className={`px-2 py-0.5 rounded transition-colors ${
+                            playSpeed === speedOpt.value
+                              ? 'bg-purple-950 border border-purple-500/30 text-purple-300'
+                              : 'bg-transparent text-gray-500 hover:text-gray-300'
+                          }`}
+                        >
+                          {speedOpt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 ) : (
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-3 max-h-[340px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-purple-900 scrollbar-track-transparent">
                     {historySpecimens.map(specimen => (
                       <div 
                         key={specimen.id} 
@@ -4246,6 +4383,87 @@ export default function App() {
               <span className="text-[9px] font-mono text-cyan-300 uppercase tracking-widest font-bold">Synchronizing Evolution...</span>
             </motion.div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Out of Stamina Modal */}
+      <AnimatePresence>
+        {showStaminaModal && (
+          <div 
+            onClick={() => setShowStaminaModal(false)}
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-6"
+          >
+            <motion.div
+              onClick={(e) => e.stopPropagation()}
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="w-full max-w-sm bg-[#0a0b10] border border-gray-900 rounded-2xl p-6 shadow-2xl relative overflow-hidden text-center flex flex-col items-center justify-center gap-4 animate-fade-in"
+            >
+              {/* Close Button */}
+              <button
+                onClick={() => setShowStaminaModal(false)}
+                className="absolute top-4 right-4 p-1 text-gray-500 hover:text-gray-300 rounded-lg hover:bg-gray-900 transition-colors z-20"
+              >
+                <X className="w-4 h-4" />
+              </button>
+
+              <div className="absolute top-[-20%] left-[-20%] w-[60%] h-[60%] rounded-full bg-rose-950/20 blur-[50px] pointer-events-none" />
+              <div className="relative">
+                <Activity className="w-12 h-12 text-rose-500 animate-pulse" />
+                <div className="absolute inset-0 bg-rose-500/20 blur-xl rounded-full" />
+              </div>
+              <div>
+                <p className="text-rose-400 font-bold text-sm tracking-wider">
+                  {lang === 'ja' ? 'スタミナ切れ' : 'Out of Stamina'}
+                </p>
+                <p className="text-gray-400 text-[10px] mt-1 uppercase tracking-wider">
+                  {lang === 'ja' ? '時間経過で徐々に回復します' : 'Recovers gradually over time'}
+                </p>
+              </div>
+              <div className="px-4 py-2 rounded-xl bg-gray-900 border border-gray-800 text-xs font-semibold text-gray-200">
+                {lang === 'ja' ? '回復まで:' : 'Next recovery:'} <span className="text-purple-400 font-bold">{nextRecoverySeconds}{lang === 'ja' ? '秒' : 's'}</span>
+              </div>
+              <div className="text-[9px] text-gray-500 uppercase tracking-widest font-semibold text-center mt-1 space-y-0.5">
+                <div>{lang === 'ja' ? '現在のスワイプ上限: ' : 'Current Swipe Limit: '}<span className="text-gray-300 font-bold">{staminaData.maxStamina}</span></div>
+                <div>{lang === 'ja' ? '所持ソウル: ' : 'Souls Owned: '}<span className="text-yellow-300 font-bold"><BlueFire /> {staminaData.souls} Soul</span></div>
+              </div>
+              <button
+                onClick={() => {
+                  playClick();
+                  setShowStaminaModal(false);
+                  setView('shop');
+                }}
+                className="px-4 py-2 text-xs font-semibold bg-gradient-to-r from-purple-600 to-indigo-600 rounded-lg hover:from-purple-500 hover:to-indigo-500 text-white transition-colors shadow-md flex items-center gap-1 border border-purple-500/20 w-full justify-center"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-yellow-300 animate-pulse" />
+                {lang === 'ja' ? 'ショップを開く' : 'Open Shop'}
+              </button>
+
+              {/* PWA recommendation banner */}
+              {!isPwaInstalled && (
+                <div className="w-full max-w-[280px] mt-2 p-2.5 bg-indigo-950/20 border border-indigo-500/10 rounded-xl flex flex-col items-center gap-1.5 backdrop-blur-sm relative z-10">
+                  <span className="text-[8px] uppercase tracking-widest text-indigo-400 font-extrabold flex items-center gap-1">
+                    {lang === 'ja' ? '💡 アプリ（PWA）の追加' : '💡 Add App (PWA)'}
+                  </span>
+                  <p className="text-[9px] text-gray-400 text-center leading-relaxed font-medium">
+                    {lang === 'ja' ? '忘れないようにホーム画面にアプリを追加しませんか？' : 'Would you like to add this app to your home screen?'}
+                  </p>
+                  <button
+                    onClick={() => {
+                      playClick();
+                      handleInstallPwa();
+                    }}
+                    className="w-full mt-1 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[10px] font-bold transition-all shadow-md active:scale-[0.98]"
+                  >
+                    {deferredPrompt
+                      ? (lang === 'ja' ? 'アプリをインストール' : 'Install App')
+                      : (lang === 'ja' ? 'インストール方法を見る' : 'View Installation Guide')}
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
 
