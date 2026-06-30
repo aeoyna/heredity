@@ -24,6 +24,16 @@ const BlueFire = () => (
   <span className="inline-block mr-0.5" style={{ filter: 'hue-rotate(195deg) saturate(1.6) brightness(1.1)', transform: 'translateY(-1px)' }}>🔥</span>
 );
 
+const triggerVibration = (pattern: number | number[]) => {
+  if (typeof window !== 'undefined' && window.navigator && window.navigator.vibrate) {
+    try {
+      window.navigator.vibrate(pattern);
+    } catch (e) {
+      console.warn('Vibration failed:', e);
+    }
+  }
+};
+
 // Configure worker backend API base url
 const API_BASE = import.meta.env.VITE_API_BASE || 
   (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
@@ -1058,6 +1068,7 @@ export default function App() {
               'success'
             );
             playEvolve();
+            triggerVibration([100, 30, 100, 30, 200]);
             setNewGenNotification(data.generation);
             logEvent('thread_evolve', { thread_id: activeThreadId || '', generation: data.generation });
             setTimeout(() => {
@@ -1272,8 +1283,10 @@ export default function App() {
 
     if (direction === 'like') {
       playSwipeLike();
+      triggerVibration(15);
     } else {
       playSwipeNope();
+      triggerVibration(15);
     }
 
     // Add to pending batch
@@ -1327,6 +1340,7 @@ export default function App() {
 
       // Play special charge animation
       playEvolve(); // reuse evolve sound for punchy feedback
+      triggerVibration([100, 30, 100, 30, 200]);
       setShowChargeEffect(true);
       setTimeout(() => setShowChargeEffect(false), 2000);
       showMsg('✨ SPECIAL EFFECT CHARGE MAX! Swipes synced! ✨', 'success');
