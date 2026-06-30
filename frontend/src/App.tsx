@@ -4384,17 +4384,27 @@ export default function App() {
                       setShowStaminaModal(false);
                       setView('shop');
                     }}
-                    className="w-full py-3 text-xs font-bold bg-gradient-to-r from-rose-500 to-fuchsia-600 hover:from-rose-400 hover:to-fuchsia-500 text-white transition-all shadow-md flex items-center justify-center gap-1.5 rounded-2xl active:scale-[0.98] border border-rose-400/20"
+                    className="w-full py-2.5 px-4 text-white bg-gradient-to-r from-rose-500 to-fuchsia-600 hover:from-rose-400 hover:to-fuchsia-500 transition-all shadow-md flex flex-col items-center justify-center gap-0.5 rounded-2xl active:scale-[0.98] border border-rose-400/20"
                   >
-                    <ShoppingBag className="w-3.5 h-3.5 text-white" />
-                    {lang === 'ja' ? 'ショップを開く' : 'Open Shop'}
+                    <div className="flex items-center gap-1.5 text-xs font-bold">
+                      <ShoppingBag className="w-3.5 h-3.5 text-white" />
+                      <span>{lang === 'ja' ? 'ショップを開く' : 'Open Shop'}</span>
+                    </div>
+                    <span className="text-[9px] text-rose-100/70 font-medium">
+                      {lang === 'ja' ? 'ソウルを使ってスタミナを回復する。' : 'Use souls to recover stamina.'}
+                    </span>
                   </button>
                   <button
                     onClick={handleShare}
-                    className="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-500 hover:from-blue-500 hover:to-indigo-400 text-white rounded-2xl text-xs font-bold transition-all shadow-md active:scale-[0.98] flex items-center justify-center gap-1.5 border border-blue-400/20"
+                    className="w-full py-2.5 px-4 text-white bg-gradient-to-r from-blue-600 to-indigo-500 hover:from-blue-500 hover:to-indigo-400 rounded-2xl transition-all shadow-md active:scale-[0.98] flex flex-col items-center justify-center gap-0.5 border border-blue-400/20"
                   >
-                    <Users className="w-3.5 h-3.5 text-blue-100" />
-                    {lang === 'ja' ? '仲間を呼ぶ' : 'Invite Friends'}
+                    <div className="flex items-center gap-1.5 text-xs font-bold">
+                      <Users className="w-3.5 h-3.5 text-blue-100" />
+                      <span>{lang === 'ja' ? '仲間を呼ぶ' : 'Invite Friends'}</span>
+                    </div>
+                    <span className="text-[9px] text-blue-100/70 font-medium">
+                      {lang === 'ja' ? '共有して進化を加速する' : 'Share to accelerate evolution.'}
+                    </span>
                   </button>
                 </div>
               </div>
