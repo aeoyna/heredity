@@ -7,17 +7,13 @@ interface SwipeCardProps {
   onSwipe: (direction: 'like' | 'nope') => void;
   isActive: boolean;
   onTap?: () => void;
-  isSwipeDisabled?: boolean;
-  onDisabledSwipeTrigger?: () => void;
 }
 
 export const SwipeCard: React.FC<SwipeCardProps> = ({ 
   children, 
   onSwipe, 
   isActive, 
-  onTap,
-  isSwipeDisabled = false,
-  onDisabledSwipeTrigger
+  onTap
 }) => {
   // Motion values for tracking drag position
   const x = useMotionValue(0);
@@ -32,10 +28,8 @@ export const SwipeCard: React.FC<SwipeCardProps> = ({
   const likeOpacity = useTransform(x, [0, 100], [0, 1]);
   const nopeOpacity = useTransform(x, [-100, 0], [1, 0]);
 
-  const canDrag = isActive && !isSwipeDisabled;
-
   const handleDragEnd = (_event: any, info: PanInfo) => {
-    if (!canDrag) return;
+    if (!isActive) return;
 
     const swipeThreshold = 140; // threshold in pixels to register a swipe
     if (info.offset.x > swipeThreshold) {
@@ -61,17 +55,14 @@ export const SwipeCard: React.FC<SwipeCardProps> = ({
   return (
     <motion.div
       style={{ x, y, rotate, opacity }}
-      drag={canDrag}
+      drag={isActive}
       dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
       dragElastic={0.7}
       onDragEnd={handleDragEnd}
-      whileDrag={{ scale: canDrag ? 1.05 : 1 }}
+      whileDrag={{ scale: 1.05 }}
       transition={{ type: 'spring', stiffness: 300, damping: 20 }}
       onPointerDown={() => {
         pointerDownTimeRef.current = Date.now();
-        if (isActive && isSwipeDisabled && onDisabledSwipeTrigger) {
-          onDisabledSwipeTrigger();
-        }
       }}
       onTap={() => {
         if (isActive && onTap) {

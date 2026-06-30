@@ -2338,11 +2338,6 @@ export default function App() {
                         <SwipeCard
                           key={card.id}
                           isActive={isActive}
-                          isSwipeDisabled={staminaData.stamina <= 0 && staminaData.maxStamina < 9999}
-                          onDisabledSwipeTrigger={() => {
-                            setShowStaminaModal(true);
-                            playError();
-                          }}
                           onSwipe={(dir) => handleSwipe(dir, card.id)}
                           onTap={() => {
                             if (card.is_honeypot) {
