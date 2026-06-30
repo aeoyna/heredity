@@ -1709,6 +1709,51 @@ export default function App() {
     }
   };
 
+  const isWebView = () => {
+    if (typeof window === 'undefined' || !window.navigator) return false;
+    const ua = window.navigator.userAgent.toLowerCase();
+    return (
+      ua.includes('wv') ||
+      ua.includes('webview') ||
+      ua.includes('line') ||
+      ua.includes('fbav') ||
+      ua.includes('instagram') ||
+      ua.includes('twitter') ||
+      ua.includes('gsa') ||
+      (ua.includes('safari') && ua.includes('fban') && ua.includes('fbios'))
+    );
+  };
+
+  const handleOpenInBrowser = () => {
+    playClick();
+    const url = window.location.href;
+    const ua = window.navigator.userAgent.toLowerCase();
+    
+    if (ua.includes('android')) {
+      // Android: Force open in default browser using intent schema
+      window.location.href = `intent://${window.location.host}${window.location.pathname}${window.location.search}#Intent;scheme=https;end`;
+    } else if (ua.includes('iphone') || ua.includes('ipad') || ua.includes('ipod')) {
+      if (ua.includes('line')) {
+        // LINE iOS has openExternalBrowser query param support
+        const separator = url.includes('?') ? '&' : '?';
+        window.location.href = `${url}${separator}openExternalBrowser=1`;
+      } else {
+        // iOS general fallback: copy URL to clipboard and alert
+        navigator.clipboard.writeText(url).then(() => {
+          alert(lang === 'ja'
+            ? "URLリンクをコピーしました。SafariやChromeなどの標準ブラウザを起動し、アドレスバーに貼り付けてアクセスし直してください。"
+            : "Link URL copied! Please open a standard browser like Safari or Chrome, and paste it into the address bar to continue.");
+        }).catch(() => {
+          alert(lang === 'ja'
+            ? "Safariなどの標準ブラウザで https://gene46.net/ に直接アクセスしてください。"
+            : "Please open Safari and navigate to https://gene46.net/ directly.");
+        });
+      }
+    } else {
+      window.open(url, '_blank');
+    }
+  };
+
   const copyToClipboard = (text: string, msg: string) => {
     navigator.clipboard.writeText(text).then(
       () => showMsg(msg, 'success'),
@@ -3487,6 +3532,27 @@ export default function App() {
                     ? 'Explore the gene helix and log in to continue the evolution of specimens.'
                     : '遺伝子の螺旋を探索し、 specimen（スペックメン）の進化を進めるにはログインが必要です。'}
                 </p>
+
+                {/* WebView Warning Banner */}
+                {isWebView() && (
+                  <div className="w-full p-4 mb-5 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex flex-col items-center gap-3 backdrop-blur-sm text-center">
+                    <div className="flex items-center gap-2 text-amber-500 font-bold text-xs">
+                      <ShieldAlert className="w-4 h-4 text-amber-500 animate-pulse" />
+                      <span>{lang === 'ja' ? 'アプリ内ブラウザで閲覧中' : 'You are in a webview'}</span>
+                    </div>
+                    <p className="text-[10px] text-gray-300 leading-normal font-medium max-w-[260px]">
+                      {lang === 'ja'
+                        ? 'LINEやTwitterなどのアプリ内ブラウザでは、Googleログインが制限されているためログインできない場合があります。'
+                        : 'Google login may not work correctly inside app webviews due to security policies.'}
+                    </p>
+                    <button
+                      onClick={handleOpenInBrowser}
+                      className="w-full py-2 bg-gradient-to-r from-amber-600 to-yellow-500 hover:from-amber-500 hover:to-yellow-400 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-[0.98]"
+                    >
+                      {lang === 'ja' ? '標準ブラウザで開く' : 'Open in browser'}
+                    </button>
+                  </div>
+                )}
 
                 {/* Continue with Google button */}
                 <button
