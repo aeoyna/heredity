@@ -1001,7 +1001,7 @@ export default function App() {
       const historyData = await historyRes.json();
       if (historyData.history) {
         setHistorySpecimens(historyData.history);
-        setFlipbookIndex(0);
+        setFlipbookIndex(historyData.history.length - 1);
         setIsPlayActive(historyData.history.length > 1);
         // Use the last history specimen as a preview icon for this thread
         if (historyData.history.length > 0 && activeThreadId) {
@@ -1024,7 +1024,7 @@ export default function App() {
     let intervalId: any;
     if (isPlayActive && historySpecimens.length > 0) {
       intervalId = setInterval(() => {
-        setFlipbookIndex((prev) => (prev + 1) % historySpecimens.length);
+        setFlipbookIndex((prev) => (prev - 1 + historySpecimens.length) % historySpecimens.length);
       }, playSpeed);
     }
     return () => {
@@ -3065,18 +3065,18 @@ export default function App() {
                     {/* Progress Slider */}
                     <div className="w-full px-2 flex flex-col gap-1.5">
                       <div className="flex justify-between text-[8px] text-gray-500 font-bold tracking-wider">
-                        <span>GEN {historySpecimens[0]?.generation}</span>
-                        <span>{flipbookIndex + 1} / {historySpecimens.length}</span>
                         <span>GEN {historySpecimens[historySpecimens.length - 1]?.generation}</span>
+                        <span>{historySpecimens.length - flipbookIndex} / {historySpecimens.length}</span>
+                        <span>GEN {historySpecimens[0]?.generation}</span>
                       </div>
                       <input
                         type="range"
                         min="0"
                         max={historySpecimens.length - 1}
-                        value={flipbookIndex}
+                        value={historySpecimens.length - 1 - flipbookIndex}
                         onChange={(e) => {
                           setIsPlayActive(false);
-                          setFlipbookIndex(parseInt(e.target.value, 10));
+                          setFlipbookIndex(historySpecimens.length - 1 - parseInt(e.target.value, 10));
                         }}
                         className="w-full accent-purple-500 bg-gray-900 rounded-lg h-1 appearance-none cursor-pointer"
                       />
@@ -3084,12 +3084,12 @@ export default function App() {
 
                     {/* Playback Controls */}
                     <div className="flex items-center justify-center gap-3">
-                      {/* Prev Frame */}
+                      {/* Prev Frame (Go back in time, increase index) */}
                       <button
                         onClick={() => {
                           playClick();
                           setIsPlayActive(false);
-                          setFlipbookIndex((prev) => (prev - 1 + historySpecimens.length) % historySpecimens.length);
+                          setFlipbookIndex((prev) => (prev + 1) % historySpecimens.length);
                         }}
                         className="w-8 h-8 flex items-center justify-center bg-gray-900 border border-gray-800 text-gray-400 hover:text-white rounded-lg transition-colors active:scale-95 text-xs font-bold"
                         title="前へ"
@@ -3112,12 +3112,12 @@ export default function App() {
                         {isPlayActive ? 'PAUSE' : 'PLAY'}
                       </button>
 
-                      {/* Next Frame */}
+                      {/* Next Frame (Go forward in time, decrease index) */}
                       <button
                         onClick={() => {
                           playClick();
                           setIsPlayActive(false);
-                          setFlipbookIndex((prev) => (prev + 1) % historySpecimens.length);
+                          setFlipbookIndex((prev) => (prev - 1 + historySpecimens.length) % historySpecimens.length);
                         }}
                         className="w-8 h-8 flex items-center justify-center bg-gray-900 border border-gray-800 text-gray-400 hover:text-white rounded-lg transition-colors active:scale-95 text-xs font-bold"
                         title="次へ"
