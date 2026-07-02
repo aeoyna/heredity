@@ -40,6 +40,19 @@ const API_BASE = import.meta.env.VITE_API_BASE ||
     ? 'http://localhost:8787'
     : '');
 
+const apiFetch = async (url: string, options: RequestInit = {}) => {
+  const token = localStorage.getItem('auth_token');
+  const headers = new Headers(options.headers || {});
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+  return fetch(url, {
+    ...options,
+    headers,
+    credentials: 'include'
+  });
+};
+
 // Obfuscation and Cryptographic Checksum Helpers to Prevent DevTools Cheating
 const OBFS_KEY = 0xAF;
 const SIGNATURE_SALT = 'project-x-stamina-integrity-salt-42f8e1';
@@ -385,12 +398,11 @@ export default function App() {
   const syncStaminaWithServer = async (overrideData?: typeof staminaData) => {
     try {
       const data = overrideData || staminaDataRef.current;
-      const res = await fetch(`${API_BASE}/api/stamina/sync`, {
+      const res = await apiFetch(`${API_BASE}/api/stamina/sync`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        credentials: 'include',
         body: JSON.stringify({
           stamina: data.stamina,
           maxStamina: data.maxStamina,
@@ -657,12 +669,11 @@ export default function App() {
     }
     try {
       showMsg(lang === 'en' ? 'Redirecting to checkout...' : '決済画面へ移動しています...', 'info');
-      const res = await fetch(`${API_BASE}/api/stripe/create-checkout-session`, {
+      const res = await apiFetch(`${API_BASE}/api/stripe/create-checkout-session`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        credentials: 'include',
         body: JSON.stringify({ item })
       });
       
@@ -710,7 +721,7 @@ export default function App() {
           ? `${API_BASE}/api/geo?test_country=${testCountry}` 
           : `${API_BASE}/api/geo`;
 
-        const res = await fetch(url, { credentials: 'include' });
+        const res = await apiFetch(url);
         if (res.ok) {
           const data = await res.json();
           if (data.country) {
@@ -729,7 +740,7 @@ export default function App() {
     initGA();
     const checkAuth = async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/auth/me`, { credentials: 'include' });
+        const res = await apiFetch(`${API_BASE}/api/auth/me`);
         if (res.ok) {
           const data = await res.json();
           if (data.success) {
@@ -738,6 +749,8 @@ export default function App() {
             setAuthStatus('authenticated');
             return;
           }
+        } else if (res.status === 401) {
+          localStorage.removeItem('auth_token');
         }
         setAuthStatus('authenticating');
       } catch (err) {
@@ -809,6 +822,7 @@ export default function App() {
     // Google Login Success Tracking
     const tokenParam = params.get('token');
     if (tokenParam) {
+      localStorage.setItem('auth_token', tokenParam);
       logEvent('login', { method: 'Google' });
       const url = new URL(window.location.href);
       url.searchParams.delete('token');
@@ -851,12 +865,11 @@ export default function App() {
 
     const registerAnonymous = async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/auth/anonymous`, {
+        const res = await apiFetch(`${API_BASE}/api/auth/anonymous`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
           },
-          credentials: 'include',
           body: JSON.stringify({ turnstile_token: turnstileToken })
         });
         if (!res.ok) {
@@ -865,6 +878,9 @@ export default function App() {
         }
         const data = await res.json();
         if (data.success) {
+          if (data.token) {
+            localStorage.setItem('auth_token', data.token);
+          }
           setSessionId(data.session_id);
           setSessionType(data.type);
           setAuthStatus('authenticated');
@@ -919,7 +935,7 @@ export default function App() {
   // Fetch threads list
   const fetchThreads = useCallback(async (selectThreadId?: string) => {
     try {
-      const res = await fetch(`${API_BASE}/api/threads`, { credentials: 'include' });
+      const res = await apiFetch(`${API_BASE}/api/threads`);
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
         throw new Error(errorData.error || `HTTP ${res.status}`);
@@ -1001,7 +1017,7 @@ export default function App() {
     if (!activeThreadId) return;
     setGalleryLoading(true);
     try {
-      const historyRes = await fetch(`${API_BASE}/api/threads/history?thread_id=${activeThreadId}`, { credentials: 'include' });
+      const historyRes = await apiFetch(`${API_BASE}/api/threads/history?thread_id=${activeThreadId}`);
       if (!historyRes.ok) {
         const errorData = await historyRes.json().catch(() => ({}));
         throw new Error(errorData.error || `HTTP ${historyRes.status}`);
@@ -1036,9 +1052,7 @@ export default function App() {
       const excludeParam = excludeIds.length > 0 ? `&exclude=${excludeIds.join(',')}` : '';
       const lastSwipedParam = lastSwipedCardId ? `&last_swiped_card_id=${lastSwipedCardId}` : '';
 
-      const res = await fetch(`${API_BASE}/api/cards?thread_id=${activeThreadId}${excludeParam}${lastSwipedParam}`, {
-        credentials: 'include'
-      });
+      const res = await apiFetch(`${API_BASE}/api/cards?thread_id=${activeThreadId}${excludeParam}${lastSwipedParam}`);
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
         throw new Error(errorData.error || `HTTP ${res.status}`);
@@ -1160,17 +1174,19 @@ export default function App() {
   // Trigger Mock Auth for local development/testing
   const triggerMockAuth = async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/auth/upgrade`, {
+      const res = await apiFetch(`${API_BASE}/api/auth/upgrade`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        credentials: 'include',
         body: JSON.stringify({ clerk_token: 'mock_developer_token' })
       });
       if (!res.ok) throw new Error('Upgrade endpoint returned error');
       const data = await res.json();
       if (data.success) {
+        if (data.token) {
+          localStorage.setItem('auth_token', data.token);
+        }
         logEvent('login', { method: 'Mock' });
         setSessionType('authenticated');
         setShowAuthModal(false);
@@ -1197,12 +1213,12 @@ export default function App() {
       return;
     }
     try {
-      const res = await fetch(`${API_BASE}/api/auth/logout`, {
-        method: 'POST',
-        credentials: 'include'
+      const res = await apiFetch(`${API_BASE}/api/auth/logout`, {
+        method: 'POST'
       });
       if (res.ok) {
         // Clear local storage to fully reset this client
+        localStorage.removeItem('auth_token');
         localStorage.removeItem('project_x_stamina_data');
         localStorage.removeItem('project_x_saved_cards');
         localStorage.removeItem('project_x_saved_thread_ids');
@@ -1230,12 +1246,11 @@ export default function App() {
   const submitSwipesBulk = async (swipesToSend: { card_id: string; swipe: 'like' | 'nope' }[]) => {
     if (!activeThreadId) return;
     try {
-      const response = await fetch(`${API_BASE}/api/swipe/bulk`, {
+      const response = await apiFetch(`${API_BASE}/api/swipe/bulk`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        credentials: 'include',
         body: JSON.stringify({
           thread_id: activeThreadId,
           swipes: swipesToSend,
@@ -1380,12 +1395,11 @@ export default function App() {
 
     setCreatingThread(true);
     try {
-      const res = await fetch(`${API_BASE}/api/threads`, {
+      const res = await apiFetch(`${API_BASE}/api/threads`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        credentials: 'include',
         body: JSON.stringify({
           name: newThreadName,
           type: newThreadType
@@ -1639,12 +1653,11 @@ export default function App() {
 
     setIsForking(true);
     try {
-      const res = await fetch(`${API_BASE}/api/threads`, {
+      const res = await apiFetch(`${API_BASE}/api/threads`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        credentials: 'include',
         body: JSON.stringify({
           name: forkThreadName,
           type: selectedCard.type || mode,
@@ -1783,12 +1796,11 @@ export default function App() {
       return;
     }
     try {
-      const res = await fetch(`${API_BASE}/api/threads/delete`, {
+      const res = await apiFetch(`${API_BASE}/api/threads/delete`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        credentials: 'include',
         body: JSON.stringify({
           thread_id: threadId
         })
@@ -1833,12 +1845,11 @@ export default function App() {
     if (newName.trim() === currentName) return;
 
     try {
-      const res = await fetch(`${API_BASE}/api/threads/rename`, {
+      const res = await apiFetch(`${API_BASE}/api/threads/rename`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        credentials: 'include',
         body: JSON.stringify({
           thread_id: threadId,
           name: newName.trim()
