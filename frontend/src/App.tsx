@@ -4172,8 +4172,6 @@ export default function App() {
                 ? `## Inquiry Details\n(Please enter details here)`
                 : `## お問い合わせ内容\n(ここにお問い合わせ内容を入力してください)`);
 
-          const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=contact@gene46.net&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-
           return (
             <div 
               onClick={() => setShowReportModal(false)}
@@ -4218,7 +4216,7 @@ export default function App() {
                       onClick={() => { playClick(); setContactCategory('bug'); }}
                       className={`flex-1 py-2.5 text-center rounded-xl transition-all duration-200 ${
                         contactCategory === 'bug'
-                          ? 'bg-gray-100 text-gray-950 shadow-sm'
+                           ? 'bg-gray-100 text-gray-950 shadow-sm'
                           : 'text-gray-400 hover:text-gray-200'
                       }`}
                     >
@@ -4237,32 +4235,17 @@ export default function App() {
                     </button>
                   </div>
 
-                  {/* Email address display & Gmail button */}
+                  {/* Email address display */}
                   <div className="space-y-2">
                     <p className="text-xs text-gray-300 leading-normal">
                       {lang === 'en'
                         ? 'Please send your inquiry to the address below:'
                         : '以下のメールアドレスにお問い合わせ内容を送信してください。'}
                     </p>
-                    <div className="flex items-center justify-between px-4 py-3 bg-gray-950 border border-gray-900 rounded-2xl text-xs gap-3">
-                      <a 
-                        href={`mailto:contact@gene46.net?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`}
-                        className="text-indigo-400 hover:text-indigo-300 hover:underline font-mono font-bold text-sm truncate max-w-[200px]"
-                        title={lang === 'en' ? 'Open in mail client' : 'メールソフトで開く'}
-                      >
+                    <div className="flex items-center justify-center px-4 py-3 bg-gray-950 border border-gray-900 rounded-2xl text-xs">
+                      <span className="text-gray-400 font-mono font-bold text-sm select-none pointer-events-none">
                         contact@gene46.net
-                      </a>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          playClick();
-                          window.open(gmailUrl, '_blank');
-                        }}
-                        className="px-3.5 py-2 bg-gray-900 hover:bg-gray-800 border border-gray-800 text-gray-200 hover:text-white rounded-full text-[11px] font-bold tracking-wide transition-all active:scale-[0.97] flex items-center gap-1 shadow-sm"
-                      >
-                        {lang === 'en' ? 'Open in Gmail' : 'Gmailで開く'}
-                        <span className="text-gray-500 font-mono text-[9px]">&gt;</span>
-                      </button>
+                      </span>
                     </div>
                   </div>
 
