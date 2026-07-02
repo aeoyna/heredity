@@ -3541,6 +3541,17 @@ export default function App() {
                 <X className="w-4.5 h-4.5" />
               </button>
 
+              {/* Language Switcher Button */}
+              <button
+                onClick={() => {
+                  playClick();
+                  changeLang(lang === 'ja' ? 'en' : 'ja');
+                }}
+                className="absolute top-4 left-4 py-1 px-2.5 text-[10px] font-bold text-gray-400 hover:text-gray-200 border border-gray-800 hover:border-gray-600 rounded-full bg-white/5 hover:bg-white/10 transition-all uppercase tracking-wider"
+              >
+                {lang === 'ja' ? 'EN' : '日本語'}
+              </button>
+
               <div className="my-auto py-4">
                 {/* Glowing DNA double helix logo */}
                 <div className="relative flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-tr from-purple-500/10 to-indigo-500/10 border border-purple-500/20 shadow-inner mb-6 mx-auto">
