@@ -2107,9 +2107,11 @@ export default function App() {
             <RefreshCw className="w-4 h-4 animate-spin" />
             <span>Connecting securely...</span>
           </div>
+        </div>
 
-          {/* GA Tips Card */}
-          <div className="mt-8 p-5 rounded-2xl bg-white/[0.03] border border-white/5 max-w-[320px] text-center backdrop-blur-md shadow-lg">
+        {/* GA Tips Card at the bottom */}
+        <div className="absolute bottom-10 left-1/2 -translate-x-1/2 w-full max-w-[320px] px-4 z-10">
+          <div className="p-5 rounded-2xl bg-white/[0.03] border border-white/5 text-center backdrop-blur-md shadow-lg animate-fade-in">
             <h4 className="text-[10px] font-extrabold text-purple-400 tracking-widest uppercase mb-2">
               {GA_TIPS[loadingTipIndex].title[lang === 'en' ? 'en' : 'ja']}
             </h4>
