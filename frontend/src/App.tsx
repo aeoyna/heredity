@@ -53,6 +53,39 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
   });
 };
 
+const GA_TIPS = [
+  {
+    title: {
+      ja: '🧬 淘汰と選択',
+      en: '🧬 Selection'
+    },
+    desc: {
+      ja: '優秀な個体が次の世代に生き残る「選択淘汰」をシミュレーションし、環境に適応させます。',
+      en: 'Simulates "natural selection" where superior individuals survive to adapt to the environment.'
+    }
+  },
+  {
+    title: {
+      ja: '🔗 交叉 (Crossover)',
+      en: '🔗 Crossover'
+    },
+    desc: {
+      ja: '親となる2つの優れた個体のDNAを掛け合わせ、新しい子個体（次世代）を作り出します。',
+      en: 'Combines the DNAs of two superior parent individuals to create new offspring.'
+    }
+  },
+  {
+    title: {
+      ja: '⚡ 突然変異 (Mutation)',
+      en: '⚡ Mutation'
+    },
+    desc: {
+      ja: '多様性を保ち、進化の行き詰まりを防ぐために、ランダムに遺伝子の一部を書き換えます。',
+      en: 'Randomly alters genes to maintain diversity and prevent evolution from getting stuck.'
+    }
+  }
+];
+
 // Obfuscation and Cryptographic Checksum Helpers to Prevent DevTools Cheating
 const OBFS_KEY = 0xAF;
 const SIGNATURE_SALT = 'project-x-stamina-integrity-salt-42f8e1';
@@ -220,6 +253,7 @@ interface SpecimenData {
 
 export default function App() {
   const [threads, setThreads] = useState<Thread[]>([]);
+  const [loadingTipIndex] = useState(() => Math.floor(Math.random() * 3));
 
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
 
@@ -2072,6 +2106,16 @@ export default function App() {
           <div className="flex items-center gap-2 mt-4 text-xs font-semibold text-purple-400 uppercase tracking-widest">
             <RefreshCw className="w-4 h-4 animate-spin" />
             <span>Connecting securely...</span>
+          </div>
+
+          {/* GA Tips Card */}
+          <div className="mt-8 p-5 rounded-2xl bg-white/[0.03] border border-white/5 max-w-[320px] text-center backdrop-blur-md shadow-lg">
+            <h4 className="text-[10px] font-extrabold text-purple-400 tracking-widest uppercase mb-2">
+              {GA_TIPS[loadingTipIndex].title[lang === 'en' ? 'en' : 'ja']}
+            </h4>
+            <p className="text-[11px] text-gray-400 leading-relaxed">
+              {GA_TIPS[loadingTipIndex].desc[lang === 'en' ? 'en' : 'ja']}
+            </p>
           </div>
         </div>
         <div id="turnstile-container" className="hidden" />
