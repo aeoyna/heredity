@@ -198,7 +198,7 @@ async function fetchAssignedCardsForSession(
   const query = `
     SELECT id, generation, dna, is_honeypot
     FROM specimens
-    WHERE thread_id = ? AND generation = ? AND status = 'active' AND assigned_session_id = ?
+    WHERE thread_id = ? AND generation = ? AND status = 'active' AND assigned_session_id = ? AND is_honeypot = 0
     ${clause}
     ORDER BY assigned_at ASC, id ASC
     LIMIT 20
@@ -225,7 +225,7 @@ async function claimCardsForSession(
   const selectQuery = `
     SELECT id
     FROM specimens
-    WHERE thread_id = ? AND generation = ? AND status = 'active' AND assigned_session_id IS NULL
+    WHERE thread_id = ? AND generation = ? AND status = 'active' AND assigned_session_id IS NULL AND is_honeypot = 0
     ${clause}
     ORDER BY RANDOM()
     LIMIT ?
@@ -942,7 +942,7 @@ async function handleGetCards(
 
   if (results.length < 20) {
     const availableRow = await env.DB.prepare(
-      "SELECT COUNT(*) as count FROM specimens WHERE thread_id = ? AND generation = ? AND status = 'active' AND assigned_session_id IS NULL"
+      "SELECT COUNT(*) as count FROM specimens WHERE thread_id = ? AND generation = ? AND status = 'active' AND assigned_session_id IS NULL AND is_honeypot = 0"
     ).bind(threadId, activeGen).first<{ count: number | null }>();
 
     const availableCount = availableRow?.count ?? 0;
