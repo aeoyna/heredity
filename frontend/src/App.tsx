@@ -2036,6 +2036,17 @@ export default function App() {
               </a>
 
               <a
+                href="/blog/index.html"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => playClick()}
+                className="w-full text-left px-4 py-3 hover:bg-gray-900/40 text-xs font-semibold text-gray-300 hover:text-white transition-all flex items-center justify-between border-none block"
+              >
+                <span>{lang === 'ja' ? '公式ブログ・解説記事' : 'Official Blog'}</span>
+                <span className="text-gray-600 text-[10px]">→</span>
+              </a>
+
+              <a
                 href="/terms.html"
                 target="_blank"
                 rel="noopener noreferrer"

@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>進化の落とし穴「局所最適解」とその脱出方法 | gene46ブログ</title>
+  <style>
+    body {
+      background-color: #07080d;
+      color: #cbd5e1;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      line-height: 1.8;
+      margin: 0;
+      padding: 0;
+    }
+    .container {
+      max-width: 750px;
+      margin: 0 auto;
+      padding: 40px 20px;
+    }
+    h1, h2, h3, h4 {
+      color: #f1f5f9;
+      font-family: 'Outfit', sans-serif;
+      font-weight: 800;
+    }
+    h1 {
+      border-bottom: 2px solid rgba(168, 85, 247, 0.3);
+      padding-bottom: 12px;
+      font-size: 2.2rem;
+      margin-bottom: 8px;
+    }
+    h2 {
+      margin-top: 40px;
+      border-bottom: 1px solid rgba(168, 85, 247, 0.1);
+      padding-bottom: 8px;
+      font-size: 1.5rem;
+    }
+    h3 {
+      font-size: 1.2rem;
+      margin-top: 30px;
+      color: #e2e8f0;
+    }
+    .meta {
+      color: #64748b;
+      font-size: 0.85rem;
+      margin-bottom: 30px;
+    }
+    .card {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 12px;
+      padding: 24px;
+      margin: 24px 0;
+    }
+    a {
+      color: #a855f7;
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+    footer {
+      margin-top: 60px;
+      border-top: 1px solid #1e293b;
+      padding-top: 20px;
+      text-align: center;
+      color: #64748b;
+      font-size: 0.85rem;
+    }
+    .back-btn {
+      display: inline-block;
+      margin-bottom: 20px;
+      background: rgba(168, 85, 247, 0.1);
+      border: 1px solid rgba(168, 85, 247, 0.2);
+      padding: 8px 16px;
+      border-radius: 8px;
+      color: #c084fc;
+      font-size: 0.9rem;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .back-btn:hover {
+      background: rgba(168, 85, 247, 0.2);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <a href="/blog/index.html" class="back-btn">← 記事一覧に戻る / Back to Blog</a>
+    
+    <h1>進化の落とし穴「局所最適解」とその脱出方法</h1>
+    <div class="meta">公開日: 2026年7月5日 | カテゴリ: アルゴリズム詳細</div>
+    
+    <article>
+      <p>遺伝的アルゴリズム（GA）を用いた開発やシミュレーションにおいて、最も頻繁に遭遇する困難の一つが<strong>「局所最適解（Local Optima / ローカルオプティマ）」</strong>です。これは、進化の過程における「行き詰まり」の現象を指します。</p>
+      
+      <p>なぜこの落とし穴が発生するのか、そしてどのようにして脱出するのかを解説します。</p>
+
+      <h2>1. 局所最適解（ローカルオプティマ）とは？</h2>
+      <p>局所最適解とは、「周辺エリアの中では一番良いが、世界全体（全探索範囲）で見たときにはベストではない解」のことです。対して、本当のベストな状態を「大域最適解（Global Optimum）」と呼びます。</p>
+      <p>山登りに例えると、霧の中で一番高い山（富士山）に登ろうとしているのに、手前の低い丘（高尾山）の山頂に到達してしまい、「周囲を見渡してもここより高い場所はない（少しでも動くと下り坂になる）」と判断して動けなくなる状態です。</p>
+
+      <h2>2. なぜGAで局所最適解に陥るのか？</h2>
+      <p>GAでは、集団の個体たちが似たような「そこそこ優秀なDNA」ばかりになると、交叉を行っても同じような個体しか生まれなくなります。これを「集団の多様性の喪失」や「早期収束」と呼びます。</p>
+      <p>gene46においても、あるスレッドで全員が似たような「少し綺麗な丸」を選び続けると、進化の勢いが止まり、それ以上複雑で新しい形状が現れにくくなることがあります。</p>
+
+      <h2>3. 局所最適解から脱出するためのアプローチ</h2>
+      
+      <div class="card">
+        <h3>対策①：突然変異率の調整</h3>
+        <p>遺伝子の一部を強制的に別の形に書き換えることで、現在の「低い丘」から一気に別の場所へワープ（跳躍）します。運良くより高い山の斜面にワープできれば、そこから再び進化が上り始めます。</p>
+      </div>
+
+      <div class="card">
+        <h3>対策②：マルチスレッド進化（アイランドモデル）とフォーク</h3>
+        <p>独立した複数の島（集団）で別々に進化を進め、たまに個体を移住させる方法です。</p>
+        <p>gene46では、ユーザーが気に入った個体を別のプロジェクト（スレッド）に<strong>「分岐（フォーク）」</strong>させることができます。メイン系統とは別のスレッドを立てて異なる選別基準で淘汰を進めることで、メイン系統の局所最適解から脱出した、全く新しい系統を生み出すことが可能になります。</p>
+      </div>
+
+      <h2>4. まとめ</h2>
+      <p>進化が行き詰まったと感じたら、それは「局所最適解」に捕まっているサインかもしれません。そんなときはスレッドを「フォーク」して、あえていつもと違うスワイプ（今まで選ばなかった荒削りな個体を選ぶなど）を試してみることで、一気に進化が加速する可能性があります。</p>
+    </article>
+
+    <footer>
+      <p>&copy; 2026 gene46 Project. All rights reserved.</p>
+      <p>
+        <a href="/">アプリに戻る</a> | 
+        <a href="/terms.html">利用規約</a> | 
+        <a href="/privacy.html">プライバシーポリシー</a> | 
+        <a href="/legal.html">特定商取引法に基づく表記</a>
+      </p>
+    </footer>
+  </div>
+</body>
+</html>

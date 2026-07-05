@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>遺伝的アルゴリズム（GA）とは？仕組みと基本プロセスを徹底解説 | gene46ブログ</title>
+  <style>
+    body {
+      background-color: #07080d;
+      color: #cbd5e1;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      line-height: 1.8;
+      margin: 0;
+      padding: 0;
+    }
+    .container {
+      max-width: 750px;
+      margin: 0 auto;
+      padding: 40px 20px;
+    }
+    h1, h2, h3, h4 {
+      color: #f1f5f9;
+      font-family: 'Outfit', sans-serif;
+      font-weight: 800;
+    }
+    h1 {
+      border-bottom: 2px solid rgba(168, 85, 247, 0.3);
+      padding-bottom: 12px;
+      font-size: 2.2rem;
+      margin-bottom: 8px;
+    }
+    h2 {
+      margin-top: 40px;
+      border-bottom: 1px solid rgba(168, 85, 247, 0.1);
+      padding-bottom: 8px;
+      font-size: 1.5rem;
+    }
+    h3 {
+      font-size: 1.2rem;
+      margin-top: 30px;
+      color: #e2e8f0;
+    }
+    .meta {
+      color: #64748b;
+      font-size: 0.85rem;
+      margin-bottom: 30px;
+    }
+    .card {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 12px;
+      padding: 24px;
+      margin: 24px 0;
+    }
+    a {
+      color: #a855f7;
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+    footer {
+      margin-top: 60px;
+      border-top: 1px solid #1e293b;
+      padding-top: 20px;
+      text-align: center;
+      color: #64748b;
+      font-size: 0.85rem;
+    }
+    .back-btn {
+      display: inline-block;
+      margin-bottom: 20px;
+      background: rgba(168, 85, 247, 0.1);
+      border: 1px solid rgba(168, 85, 247, 0.2);
+      padding: 8px 16px;
+      border-radius: 8px;
+      color: #c084fc;
+      font-size: 0.9rem;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .back-btn:hover {
+      background: rgba(168, 85, 247, 0.2);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <a href="/blog/index.html" class="back-btn">← 記事一覧に戻る / Back to Blog</a>
+    
+    <h1>遺伝的アルゴリズム（GA）とは？仕組みと基本プロセスを徹底解説</h1>
+    <div class="meta">公開日: 2026年7月5日 | カテゴリ: アルゴリズム超入門</div>
+    
+    <article>
+      <p>現代のコンピュータ科学やAIの分野では、最適化問題を解決するために様々な計算モデルが開発されています。その中でも、生物の自然進化の仕組みを模倣した非常にユニークなアプローチが<strong>「遺伝的アルゴリズム（Genetic Algorithm: GA）」</strong>です。</p>
+      
+      <p>本記事では、遺伝的アルゴリズムの基本的な概念、メリット、そしてどのように計算が行われるのかを分かりやすく解説します。</p>
+
+      <h2>1. 遺伝的アルゴリズムの起源とコンセプト</h2>
+      <p>遺伝的アルゴリズムは、1970年代にジョン・ホランド（John Holland）らによって提唱されました。これはチャールズ・ダーウィンの提唱した「自然選択説（適者生存）」に基づいています。</p>
+      <p>環境に最も適応した生物が生き残り、その子孫に遺伝情報を引き継ぎ、世代交代を繰り返すことで進化していく――この一連の流れをコンピュータのアルゴリズムに移植したものがGAです。</p>
+
+      <div class="card">
+        <h3>GAの主な特徴</h3>
+        <ul>
+          <li><strong>探索範囲の広さ:</strong> ランダムな変化（突然変異）を含むため、局所的な正解に捕らわれず、グローバルな最適解を探すことができます。</li>
+          <li><strong>数学的定義が困難な問題に強い:</strong> 数式で微分して解くことが難しい、複雑な組み合わせ最適化問題などに優れた性能を発揮します。</li>
+        </ul>
+      </div>
+
+      <h2>2. 遺伝的アルゴリズムの基本プロセス</h2>
+      <p>GAは基本的に以下のステップ（世代交代）を繰り返すことで動作します。</p>
+
+      <h3>ステップ1：初期集団の生成</h3>
+      <p>まずはランダムなパラメータ（DNA）を持つ個体を大量に作成します（例：100個体）。これが第0世代となります。</p>
+
+      <h3>ステップ2：適応度評価</h3>
+      <p>各個体が「課せられたタスク」をどれだけ上手くこなしたかをスコア化します。このスコアを<strong>「適応度（Fitness）」</strong>と呼びます。gene46においては、ユーザーの「いいね」による選択やスワイプの評価がこれにあたります。</p>
+
+      <h3>ステップ3：淘汰・選択（Selection）</h3>
+      <p>適応度が高い優秀な個体を選択します。適応度が低い劣った個体はここで淘汰（排除）されます。選ばれた個体が、次の世代を残す「親」となります。</p>
+
+      <h3>ステップ4：交叉（Crossover）</h3>
+      <p>選択された親個体同士のDNAを掛け合わせます。たとえば、親AのDNAの前半と親BのDNAの後半を結合して新しい子個体を作ります。</p>
+
+      <h3>ステップ5：突然変異（Mutation）</h3>
+      <p>低確率で、遺伝情報の一部をランダムに変化させます。これにより、親の世代には存在しなかった新しい性質（多様性）が生まれ、進化が行き詰まるのを防ぎます。</p>
+
+      <p>これらのステップ3から5を何世代にもわたり繰り返す（進化を進める）ことで、求める「最適解」に徐々に近づいていきます。</p>
+
+      <h2>3. まとめ</h2>
+      <p>遺伝的アルゴリズムは、完璧な正解を数式で導き出せない問題に対して、「とりあえず試行錯誤を繰り返して環境に合わせていく」という非常に生物的かつ強力なアプローチです。gene46をプレイする際は、この「選択」「交叉」「突然変異」のサイクルがどのように幾何学アートの模様を変化させていくかに注目してみてください。</p>
+    </article>
+
+    <footer>
+      <p>&copy; 2026 gene46 Project. All rights reserved.</p>
+      <p>
+        <a href="/">アプリに戻る</a> | 
+        <a href="/terms.html">利用規約</a> | 
+        <a href="/privacy.html">プライバシーポリシー</a> | 
+        <a href="/legal.html">特定商取引法に基づく表記</a>
+      </p>
+    </footer>
+  </div>
+</body>
+</html>

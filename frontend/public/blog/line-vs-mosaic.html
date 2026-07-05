@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>線画（Line）とモザイク（Mosaic）のDNAパラメータの違い | gene46ブログ</title>
+  <style>
+    body {
+      background-color: #07080d;
+      color: #cbd5e1;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      line-height: 1.8;
+      margin: 0;
+      padding: 0;
+    }
+    .container {
+      max-width: 750px;
+      margin: 0 auto;
+      padding: 40px 20px;
+    }
+    h1, h2, h3, h4 {
+      color: #f1f5f9;
+      font-family: 'Outfit', sans-serif;
+      font-weight: 800;
+    }
+    h1 {
+      border-bottom: 2px solid rgba(168, 85, 247, 0.3);
+      padding-bottom: 12px;
+      font-size: 2.2rem;
+      margin-bottom: 8px;
+    }
+    h2 {
+      margin-top: 40px;
+      border-bottom: 1px solid rgba(168, 85, 247, 0.1);
+      padding-bottom: 8px;
+      font-size: 1.5rem;
+    }
+    h3 {
+      font-size: 1.2rem;
+      margin-top: 30px;
+      color: #e2e8f0;
+    }
+    .meta {
+      color: #64748b;
+      font-size: 0.85rem;
+      margin-bottom: 30px;
+    }
+    .card {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 12px;
+      padding: 24px;
+      margin: 24px 0;
+    }
+    a {
+      color: #a855f7;
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+    footer {
+      margin-top: 60px;
+      border-top: 1px solid #1e293b;
+      padding-top: 20px;
+      text-align: center;
+      color: #64748b;
+      font-size: 0.85rem;
+    }
+    .back-btn {
+      display: inline-block;
+      margin-bottom: 20px;
+      background: rgba(168, 85, 247, 0.1);
+      border: 1px solid rgba(168, 85, 247, 0.2);
+      padding: 8px 16px;
+      border-radius: 8px;
+      color: #c084fc;
+      font-size: 0.9rem;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .back-btn:hover {
+      background: rgba(168, 85, 247, 0.2);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <a href="/blog/index.html" class="back-btn">← 記事一覧に戻る / Back to Blog</a>
+    
+    <h1>線画（Line）とモザイク（Mosaic）のDNAパラメータの違い</h1>
+    <div class="meta">公開日: 2026年7月5日 | カテゴリ: システム・技術仕様</div>
+    
+    <article>
+      <p>gene46では、個体を表現するジェネレーティブモデルとして<strong>「線描画（Line Art）」</strong>と<strong>「モザイク（Mosaic Art）」</strong>の2種類のモードを搭載しています。一見するとグラフィカルな違いだけに見えますが、プログラム的なDNAデータ（表現型を司るパラメータ）の構成は大きく異なります。</p>
+      
+      <p>それぞれのDNA構造について技術的な視点で解説します。</p>
+
+      <h2>1. 線描画（Line）のDNA構造</h2>
+      <p>線描画のDNAは、「ストローク（軌跡）をどう描くか」を定義した動的数値パラメータの配列です。個体ごとに、最大数十個の線分やベジェ曲線データを持っています。</p>
+
+      <div class="card">
+        <h3>線画DNAに含まれる主なパラメータ</h3>
+        <ul>
+          <li><strong>制御点（Control Points）:</strong> 曲線の通り道となるx, y座標値。</li>
+          <li><strong>曲率・テンション（Curvature）:</strong> 線がどれくらい急に曲がるか、滑らかな曲線か直線か。</li>
+          <li><strong>色情報（Color / Alpha）:</strong> RGBカラーコードおよび線の透明度。</li>
+          <li><strong>太さ（Width）:</strong> 描画される線のピクセル幅。</li>
+        </ul>
+      </div>
+      <p>これらの数値配列が一様交叉や突然変異を起こすことで、「鋭い針のような白線が集まったトゲトゲした形状」から「パステルカラーの柔らかい渦巻模様」まで多様なパターンが生み出されます。</p>
+
+      <h2>2. モザイク（Mosaic）のDNA構造</h2>
+      <p>一方、モザイクモードは「グリッド（マトリクス）状の色値や周波数パターン」をDNAとして持ちます。モザイクDNAは数学的なテクスチャパターン生成関数をベースに構築されています。</p>
+
+      <div class="card">
+        <h3>モザイクDNAに含まれる主なパラメータ</h3>
+        <ul>
+          <li><strong>グリッドカラー配列:</strong> 16×16や32×32のカラーマトリクスデータ。</li>
+          <li><strong>数式パラメータ:</strong> サイン波、コサイン波などのノイズ関数の振幅、周波数、位相パラメータ。これにより、単なるドット絵ではなく滑らかなグラデーションや幾何学的なタイルパターンが形成されます。</li>
+          <li><strong>シンメトリー遺伝子:</strong> 左右対称、上下対称、または回転対称などを強制するフラグパラメータ。</li>
+        </ul>
+      </div>
+
+      <h2>3. プレイスタイルへの影響</h2>
+      <p>線描画は「生物的、有機的なカーブや渦巻き」に進化しやすく、モザイクは「アイコン、紋章、電子回路のチップのような幾何学的デジタルパターン」に進化しやすい特徴があります。あなたがどのような美的デザインを目指すかに合わせて、スレッド作成時に適切なDNA形式を選択してみてください。</p>
+    </article>
+
+    <footer>
+      <p>&copy; 2026 gene46 Project. All rights reserved.</p>
+      <p>
+        <a href="/">アプリに戻る</a> | 
+        <a href="/terms.html">利用規約</a> | 
+        <a href="/privacy.html">プライバシーポリシー</a> | 
+        <a href="/legal.html">特定商取引法に基づく表記</a>
+      </p>
+    </footer>
+  </div>
+</body>
+</html>

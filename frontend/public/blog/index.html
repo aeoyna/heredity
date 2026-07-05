@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>gene46 公式ブログ | AI進化・遺伝的アルゴリズム解説</title>
+  <style>
+    body {
+      background-color: #07080d;
+      color: #cbd5e1;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      line-height: 1.6;
+      margin: 0;
+      padding: 0;
+    }
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 60px 20px;
+    }
+    h1, h2 {
+      color: #f1f5f9;
+      font-family: 'Outfit', sans-serif;
+    }
+    h1 {
+      border-bottom: 2px solid rgba(168, 85, 247, 0.3);
+      padding-bottom: 12px;
+      font-size: 2.5rem;
+      margin-bottom: 10px;
+      text-align: center;
+      background: linear-gradient(to right, #f1f5f9, #c084fc);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .subtitle {
+      text-align: center;
+      color: #64748b;
+      margin-bottom: 50px;
+      font-size: 1.1rem;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 25px;
+    }
+    .card {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 16px;
+      padding: 24px;
+      transition: all 0.3s ease;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      height: 100px; /* Let's make it min-height to adapt content */
+      min-height: 200px;
+    }
+    .card:hover {
+      transform: translateY(-5px);
+      background: rgba(168, 85, 247, 0.04);
+      border-color: rgba(168, 85, 247, 0.25);
+      box-shadow: 0 10px 25px -5px rgba(168, 85, 247, 0.1);
+    }
+    .card-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: #f1f5f9;
+      margin-top: 0;
+      margin-bottom: 8px;
+      line-height: 1.4;
+    }
+    .card-desc {
+      color: #94a3b8;
+      font-size: 0.85rem;
+      margin-bottom: 15px;
+      flex-grow: 1;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .card-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.75rem;
+      color: #64748b;
+    }
+    .read-more {
+      color: #c084fc;
+      font-weight: bold;
+      text-decoration: none;
+    }
+    .read-more:hover {
+      text-decoration: underline;
+    }
+    .badge {
+      background: rgba(168, 85, 247, 0.1);
+      border: 1px solid rgba(168, 85, 247, 0.2);
+      color: #c084fc;
+      padding: 2px 8px;
+      border-radius: 6px;
+    }
+    footer {
+      margin-top: 80px;
+      border-top: 1px solid #1e293b;
+      padding-top: 30px;
+      text-align: center;
+      color: #64748b;
+      font-size: 0.85rem;
+    }
+    .back-btn {
+      display: inline-block;
+      margin-bottom: 30px;
+      background: rgba(168, 85, 247, 0.1);
+      border: 1px solid rgba(168, 85, 247, 0.2);
+      padding: 10px 20px;
+      border-radius: 10px;
+      color: #c084fc;
+      font-size: 0.95rem;
+      cursor: pointer;
+      text-decoration: none;
+      transition: all 0.2s ease;
+    }
+    .back-btn:hover {
+      background: rgba(168, 85, 247, 0.2);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div style="text-align: center;">
+      <a href="/" class="back-btn">← アプリを開く / Open gene46 App</a>
+    </div>
+    
+    <h1>gene46 公式ブログ</h1>
+    <p class="subtitle">AI進化シミュレータ「gene46」のアルゴリズム解説・システム攻略・コラム</p>
+    
+    <div class="grid">
+      <!-- Article 1 -->
+      <div class="card">
+        <div>
+          <h3 class="card-title">遺伝的アルゴリズム（GA）とは？仕組みと基本プロセスを徹底解説</h3>
+          <p class="card-desc">生物進化のメカニズムを計算機に応用した「遺伝的アルゴリズム」。初期世代の生成から、選択、交叉、突然変異までの基本をわかりやすく解説します。</p>
+        </div>
+        <div class="card-footer">
+          <span class="badge">アルゴリズム超入門</span>
+          <a href="/blog/ga-basics.html" class="read-more">記事を読む →</a>
+        </div>
+      </div>
+
+      <!-- Article 2 -->
+      <div class="card">
+        <div>
+          <h3 class="card-title">進化の核となる「交叉（Crossover）」の仕組み</h3>
+          <p class="card-desc">親のDNAをどう掛け合わせて新しい美しさを生むのか？一点交叉や一様交叉など、アルゴリズム進化のブレンド力にフォーカスして解説します。</p>
+        </div>
+        <div class="card-footer">
+          <span class="badge">アルゴリズム詳細</span>
+          <a href="/blog/crossover.html" class="read-more">記事を読む →</a>
+        </div>
+      </div>
+
+      <!-- Article 3 -->
+      <div class="card">
+        <div>
+          <h3 class="card-title">なぜ突然変異（Mutation）が必要なのか？進化の多様性</h3>
+          <p class="card-desc">親に似ていない「ランダムなエラー」が、なぜ進化の袋小路を突破するのか？突然変異が果たす多様性の維持と局所解回避について語ります。</p>
+        </div>
+        <div class="card-footer">
+          <span class="badge">アルゴリズム詳細</span>
+          <a href="/blog/mutation.html" class="read-more">記事を読む →</a>
+        </div>
+      </div>
+
+      <!-- Article 4 -->
+      <div class="card">
+        <div>
+          <h3 class="card-title">線画（Line）とモザイク（Mosaic）のDNAパラメータの違い</h3>
+          <p class="card-desc">描画ロジックの裏にあるDNA配列。線の曲率やカラーコード、グリッドマトリクスの周波数パラメータのプログラム的な違いを解説します。</p>
+        </div>
+        <div class="card-footer">
+          <span class="badge">システム・技術仕様</span>
+          <a href="/blog/line-vs-mosaic.html" class="read-more">記事を読む →</a>
+        </div>
+      </div>
+
+      <!-- Article 5 -->
+      <div class="card">
+        <div>
+          <h3 class="card-title">進化の落とし穴「局所最適解」とその脱出方法</h3>
+          <p class="card-desc">進化が進まなくなる停滞期（早期収束）。そこから脱出するための突然変異の調整や、スレッドフォーク機能の理論的なメリットを紹介します。</p>
+        </div>
+        <div class="card-footer">
+          <span class="badge">アルゴリズム詳細</span>
+          <a href="/blog/local-optima.html" class="read-more">記事を読む →</a>
+        </div>
+      </div>
+
+      <!-- Article 6 -->
+      <div class="card">
+        <div>
+          <h3 class="card-title">現実世界のエンジニアリングで活躍する遺伝的アルゴリズム</h3>
+          <p class="card-desc">新幹線のカモノハシ型の先頭デザインや、NASAの宇宙船アンテナ設計、運行ダイヤ最適化など、リアル世界で実績を上げているGAの事例集です。</p>
+        </div>
+        <div class="card-footer">
+          <span class="badge">アルゴリズム応用</span>
+          <a href="/blog/real-world-ga.html" class="read-more">記事を読む →</a>
+        </div>
+      </div>
+
+      <!-- Article 7 -->
+      <div class="card">
+        <div>
+          <h3 class="card-title">AIジェネレーティブアートと生物学的進化の融合</h3>
+          <p class="card-desc">人間が指示する「プロンプト」型から、選択淘汰で「共進化する」型へ。インタラクティブ進化計算（IEC）の面白さと未来を論じます。</p>
+        </div>
+        <div class="card-footer">
+          <span class="badge">ジェネレーティブアート</span>
+          <a href="/blog/generative-art.html" class="read-more">記事を読む →</a>
+        </div>
+      </div>
+
+      <!-- Article 8 -->
+      <div class="card">
+        <div>
+          <h3 class="card-title">gene46攻略ガイド：美しい個体を育てるコツ</h3>
+          <p class="card-desc">序盤の選択の基準、適応度（テーマ）の一貫性、フォーク（スレッド分岐）のベストタイミングなど、美しいアートを作るためのプレイスタイル解説。</p>
+        </div>
+        <div class="card-footer">
+          <span class="badge">gene46攻略</span>
+          <a href="/blog/breeding-tips.html" class="read-more">記事を読む →</a>
+        </div>
+      </div>
+
+      <!-- Article 9 -->
+      <div class="card">
+        <div>
+          <h3 class="card-title">人間とAIの協調デザイン：選択淘汰が生み出す未来</h3>
+          <p class="card-desc">AIが人間の仕事を奪うのではなく、人間がフィルター（環境）となってAIを育てる。新たなクリエイティブ・コラボレーションの形を考えます。</p>
+        </div>
+        <div class="card-footer">
+          <span class="badge">コラム・未来予測</span>
+          <a href="/blog/human-ai-collaboration.html" class="read-more">記事を読む →</a>
+        </div>
+      </div>
+
+      <!-- Article 10 -->
+      <div class="card">
+        <div>
+          <h3 class="card-title">遺伝的アルゴリズムの歴史：ダーウィンの進化論から計算機科学へ</h3>
+          <p class="card-desc">種の起源から、アラン・チューリングの進化計算論文、そして1970年代のジョン・ホランドによるGA定式化に至るまでの歴史的軌跡を辿ります。</p>
+        </div>
+        <div class="card-footer">
+          <span class="badge">アルゴリズム歴史</span>
+          <a href="/blog/history-of-ga.html" class="read-more">記事を読む →</a>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      <p>&copy; 2026 gene46 Project. All rights reserved.</p>
+      <p>
+        <a href="/">アプリに戻る</a> | 
+        <a href="/terms.html">利用規約</a> | 
+        <a href="/privacy.html">プライバシーポリシー</a> | 
+        <a href="/legal.html">特定商取引法に基づく表記</a>
+      </p>
+    </footer>
+  </div>
+</body>
+</html>

@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>なぜ突然変異（Mutation）が必要なのか？進化の多様性 | gene46ブログ</title>
+  <style>
+    body {
+      background-color: #07080d;
+      color: #cbd5e1;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      line-height: 1.8;
+      margin: 0;
+      padding: 0;
+    }
+    .container {
+      max-width: 750px;
+      margin: 0 auto;
+      padding: 40px 20px;
+    }
+    h1, h2, h3, h4 {
+      color: #f1f5f9;
+      font-family: 'Outfit', sans-serif;
+      font-weight: 800;
+    }
+    h1 {
+      border-bottom: 2px solid rgba(168, 85, 247, 0.3);
+      padding-bottom: 12px;
+      font-size: 2.2rem;
+      margin-bottom: 8px;
+    }
+    h2 {
+      margin-top: 40px;
+      border-bottom: 1px solid rgba(168, 85, 247, 0.1);
+      padding-bottom: 8px;
+      font-size: 1.5rem;
+    }
+    h3 {
+      font-size: 1.2rem;
+      margin-top: 30px;
+      color: #e2e8f0;
+    }
+    .meta {
+      color: #64748b;
+      font-size: 0.85rem;
+      margin-bottom: 30px;
+    }
+    .card {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 12px;
+      padding: 24px;
+      margin: 24px 0;
+    }
+    a {
+      color: #a855f7;
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+    footer {
+      margin-top: 60px;
+      border-top: 1px solid #1e293b;
+      padding-top: 20px;
+      text-align: center;
+      color: #64748b;
+      font-size: 0.85rem;
+    }
+    .back-btn {
+      display: inline-block;
+      margin-bottom: 20px;
+      background: rgba(168, 85, 247, 0.1);
+      border: 1px solid rgba(168, 85, 247, 0.2);
+      padding: 8px 16px;
+      border-radius: 8px;
+      color: #c084fc;
+      font-size: 0.9rem;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .back-btn:hover {
+      background: rgba(168, 85, 247, 0.2);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <a href="/blog/index.html" class="back-btn">← 記事一覧に戻る / Back to Blog</a>
+    
+    <h1>なぜ突然変異（Mutation）が必要なのか？進化の多様性</h1>
+    <div class="meta">公開日: 2026年7月5日 | カテゴリ: アルゴリズム詳細</div>
+    
+    <article>
+      <p>進化論や遺伝的アルゴリズム（GA）を聞くと、「親の良い性質を引き継ぐこと（交叉）」が主役に思われがちです。しかし、実は進化の歴史とアルゴリズムの探索力において影の主役となるのが<strong>「突然変異（Mutation）」</strong>です。</p>
+      
+      <p>なぜ突然変異というランダムなエラーが必要なのか、その重要性に迫ります。</p>
+
+      <h2>1. 突然変異とは何か？</h2>
+      <p>遺伝的アルゴリズムにおいて、突然変異とは「交叉によって生成された子個体のDNA配列の一部分を、極めて低い確率（例：0.1%〜2%程度）で全くランダムな値に書き換える」操作を指します。</p>
+      <p>生物に例えると、紫外線の影響やコピーミスでDNAの塩基配列が書き換わり、親に似ていない新しい特徴が現れる現象と同じです。</p>
+
+      <h2>2. なぜ突然変異が必要なのか？</h2>
+      
+      <div class="card">
+        <h3>最大の目的：多様性の維持と局所解の回避</h3>
+        <p>もし突然変異がなかったらどうなるでしょうか？</p>
+        <p>初期の集団に「赤色」の遺伝子が1つも存在しなかった場合、いくら「淘汰選択」と「交叉」を何百万回繰り返しても、未来永劫に赤色の個体は生まれません。遺伝子が親からしか受け継がれないからです。</p>
+        <p>この状態が続くと、遺伝的多様性が完全に失われ、全員が同じ特徴を持った「行き詰まり（局所解への収束）」に陥ります。突然変異は、集団の中に新しい「可能性（新しいパラメータ）」をスパイスのように放り込み、探索の幅を維持する役割を担っています。</p>
+      </div>
+
+      <h2>3. 突然変異率の絶妙なコントロール</h2>
+      <p>突然変異の確率（突然変異率）は、低すぎても高すぎてもうまく機能しません。</p>
+      <ul>
+        <li><strong>突然変異率が低すぎる場合:</strong> 進化が途中で停滞し、代わり映えしない個体ばかりになります。</li>
+        <li><strong>突然変異率が高すぎる場合:</strong> 親の優秀な遺伝情報が全て壊されてしまい、単なるランダムなガチャ（ランダム探索）になってしまいます。</li>
+      </ul>
+      <p>gene46では、前世代の優秀な美しさを継承しつつ、スワイプを飽きさせない新しい模様や色彩変化を適度にもたらすよう、突然変異率が自動調整されています。突然現れたユニークな個体を見つけたときは、それは突然変異の素晴らしい成果なのです。</p>
+    </article>
+
+    <footer>
+      <p>&copy; 2026 gene46 Project. All rights reserved.</p>
+      <p>
+        <a href="/">アプリに戻る</a> | 
+        <a href="/terms.html">利用規約</a> | 
+        <a href="/privacy.html">プライバシーポリシー</a> | 
+        <a href="/legal.html">特定商取引法に基づく表記</a>
+      </p>
+    </footer>
+  </div>
+</body>
+</html>
