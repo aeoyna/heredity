@@ -649,6 +649,28 @@ export default {
       return Response.redirect(targetUrl.toString(), 302);
     }
 
+    // Custom Short Query Redirects (e.g. ?n=t -> TikTok)
+    const nParam = url.searchParams.get('n');
+    if (nParam) {
+      const nMapping: Record<string, string> = {
+        't': 'tiktok',
+        'i': 'instagram',
+        'y': 'youtube',
+        'tw': 'twitter',
+        'x': 'x',
+        'l': 'line'
+      };
+      const source = nMapping[nParam.toLowerCase()];
+      if (source) {
+        const targetUrl = new URL('/', request.url);
+        targetUrl.searchParams.set('utm_source', source);
+        targetUrl.searchParams.set('utm_medium', 'social');
+        targetUrl.searchParams.set('utm_campaign', 'profile');
+        
+        return Response.redirect(targetUrl.toString(), 302);
+      }
+    }
+
     // Handle CORS preflight
     if (request.method === 'OPTIONS') {
       return new Response(null, {
