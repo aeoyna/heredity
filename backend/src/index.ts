@@ -628,6 +628,27 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
+    // Custom Social Media UTM Redirects
+    const socialRedirects: Record<string, string> = {
+      '/tiktok': 'tiktok',
+      '/instagram': 'instagram',
+      '/youtube': 'youtube',
+      '/twitter': 'twitter',
+      '/x': 'x',
+      '/line': 'line'
+    };
+
+    const pathLower = url.pathname.toLowerCase();
+    if (socialRedirects[pathLower]) {
+      const source = socialRedirects[pathLower];
+      const targetUrl = new URL('/', request.url);
+      targetUrl.searchParams.set('utm_source', source);
+      targetUrl.searchParams.set('utm_medium', 'social');
+      targetUrl.searchParams.set('utm_campaign', 'profile');
+      
+      return Response.redirect(targetUrl.toString(), 302);
+    }
+
     // Handle CORS preflight
     if (request.method === 'OPTIONS') {
       return new Response(null, {
