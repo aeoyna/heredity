@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>プライバシーポリシー | gene46</title>
+  <style>
+    body {
+      background-color: #07080d;
+      color: #cbd5e1;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      line-height: 1.6;
+      margin: 0;
+      padding: 0;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 40px 20px;
+    }
+    h1, h2, h3 {
+      color: #f1f5f9;
+      font-family: 'Outfit', sans-serif;
+    }
+    h1 {
+      border-bottom: 2px solid rgba(168, 85, 247, 0.3);
+      padding-bottom: 10px;
+      font-size: 2.2rem;
+    }
+    h2 {
+      margin-top: 40px;
+      border-bottom: 1px solid rgba(168, 85, 247, 0.1);
+      padding-bottom: 8px;
+    }
+    footer {
+      margin-top: 60px;
+      border-top: 1px solid #1e293b;
+      padding-top: 20px;
+      text-align: center;
+      color: #64748b;
+      font-size: 0.85rem;
+    }
+    .back-btn {
+      display: inline-block;
+      margin-bottom: 20px;
+      background: rgba(168, 85, 247, 0.1);
+      border: 1px solid rgba(168, 85, 247, 0.2);
+      padding: 8px 16px;
+      border-radius: 8px;
+      color: #c084fc;
+      font-size: 0.9rem;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .back-btn:hover {
+      background: rgba(168, 85, 247, 0.2);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <a href="/" class="back-btn">← アプリに戻る / Back to App</a>
+    
+    <h1>プライバシーポリシー / Privacy Policy</h1>
+    
+    <section>
+      <h2>日本語 / Japanese</h2>
+      
+      <h3>1. 収集する情報</h3>
+      <p>本サービスは匿名でご利用いただけるため、氏名、メールアドレス、電話番号などの個人情報は一切収集いたしません。</p>
+      <p>本サービスでは、個人の識別およびスワイプや投票の重複を防ぐため、自動生成されたランダムなUUID形式の「セッションID」のみをブラウザのLocalStorageに保存し、バックエンドのデータベース（D1）と連携します。</p>
+
+      <h3>2. 情報の利用目的</h3>
+      <p>収集された匿名セッションIDは、以下の目的のためにのみ利用されます。<br/>
+      • スワイプスタミナおよびソウルの整合性管理<br/>
+      • スレッドの作成権・所有権の識別<br/>
+      • ボット等による不正行為、不正投票の検知および防御</p>
+
+      <h3>3. セキュリティおよびCloudflareの利用</h3>
+      <p>本サービスはCloudflare Workers及びCloudflare D1で運用されており、不正アクセスを防ぐためのボット防御機能（Turnstileなど）が適用されます。セッションIDを含むローカルストレージの整合性は、暗号署名及びハッシュチェックサムによって検証され、改ざんを防いでいます。</p>
+    </section>
+
+    <hr style="border: 0; border-top: 1px solid rgba(255, 255, 255, 0.05); margin: 40px 0;">
+
+    <section>
+      <h2>英語 / English</h2>
+      
+      <h3>1. Information We Collect</h3>
+      <p>Because this Service is anonymous, we do not collect personal information such as name, email address, or phone number.</p>
+      <p>To identify sessions and prevent duplicate swipes or votes, we only store an automatically generated random UUID session ID in the browser LocalStorage and sync it with our backend database (D1).</p>
+
+      <h3>2. Purpose of Use</h3>
+      <p>The collected anonymous session ID is used solely for:<br/>
+      • Managing swipe stamina and soul balance integrity<br/>
+      • Identifying thread ownership and creation rights<br/>
+      • Detecting and preventing bots or fraudulent voting/actions</p>
+
+      <h3>3. Security & Cloudflare</h3>
+      <p>This Service runs on Cloudflare Workers and Cloudflare D1, employing bot protection measures (such as Turnstile) to block unauthorized access. LocalStorage integrity, including the session ID, is validated via cryptographic signatures and checksums to prevent tampering.</p>
+    </section>
+
+    <footer>
+      <p>&copy; 2026 gene46 Project. All rights reserved.</p>
+    </footer>
+  </div>
+</body>
+</html>

@@ -2024,35 +2024,49 @@ export default function App() {
 
             {/* Document Links Section */}
             <div className="bg-gray-950/40 border border-gray-900 rounded-xl overflow-hidden divide-y divide-gray-900/60">
-              <button
-                onClick={() => {
-                  setShowTermsModal(true);
-                }}
-                className="w-full text-left px-4 py-3 hover:bg-gray-900/40 text-xs font-semibold text-gray-300 hover:text-white transition-all flex items-center justify-between border-none"
+              <a
+                href="/about.html"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => playClick()}
+                className="w-full text-left px-4 py-3 hover:bg-gray-900/40 text-xs font-semibold text-gray-300 hover:text-white transition-all flex items-center justify-between border-none block"
+              >
+                <span>{lang === 'ja' ? 'gene46とは・仕組み' : 'About gene46'}</span>
+                <span className="text-gray-600 text-[10px]">→</span>
+              </a>
+
+              <a
+                href="/terms.html"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => playClick()}
+                className="w-full text-left px-4 py-3 hover:bg-gray-900/40 text-xs font-semibold text-gray-300 hover:text-white transition-all flex items-center justify-between border-none block"
               >
                 <span>{lang === 'ja' ? '利用規約' : 'Terms of Service'}</span>
                 <span className="text-gray-600 text-[10px]">→</span>
-              </button>
+              </a>
 
-              <button
-                onClick={() => {
-                  setShowPrivacyModal(true);
-                }}
-                className="w-full text-left px-4 py-3 hover:bg-gray-900/40 text-xs font-semibold text-gray-300 hover:text-white transition-all flex items-center justify-between border-none"
+              <a
+                href="/privacy.html"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => playClick()}
+                className="w-full text-left px-4 py-3 hover:bg-gray-900/40 text-xs font-semibold text-gray-300 hover:text-white transition-all flex items-center justify-between border-none block"
               >
                 <span>{lang === 'ja' ? 'プライバシーポリシー' : 'Privacy Policy'}</span>
                 <span className="text-gray-600 text-[10px]">→</span>
-              </button>
+              </a>
 
-              <button
-                onClick={() => {
-                  setShowCommercialModal(true);
-                }}
-                className="w-full text-left px-4 py-3 hover:bg-gray-900/40 text-xs font-semibold text-gray-300 hover:text-white transition-all flex items-center justify-between border-none"
+              <a
+                href="/legal.html"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => playClick()}
+                className="w-full text-left px-4 py-3 hover:bg-gray-900/40 text-xs font-semibold text-gray-300 hover:text-white transition-all flex items-center justify-between border-none block"
               >
                 <span>{lang === 'ja' ? '特定商取引法に基づく表記・返金' : 'Legal & Refund Policy'}</span>
                 <span className="text-gray-600 text-[10px]">→</span>
-              </button>
+              </a>
 
               <button
                 onClick={() => {
@@ -3670,14 +3684,14 @@ export default function App() {
                   {lang === 'ja' ? (
                     <>
                       ログインすることで、当サービスの
-                      <a href="#" className="underline hover:text-gray-400 mx-1" onClick={(e) => { e.preventDefault(); setShowTermsModal(true); }}>利用規約</a>及び
-                      <a href="#" className="underline hover:text-gray-400 ml-1" onClick={(e) => { e.preventDefault(); setShowPrivacyModal(true); }}>プライバシーポリシー</a>に同意したものとみなされます。
+                      <a href="/terms.html" target="_blank" rel="noopener noreferrer" className="underline hover:text-gray-400 mx-1">利用規約</a>及び
+                      <a href="/privacy.html" target="_blank" rel="noopener noreferrer" className="underline hover:text-gray-400 ml-1">プライバシーポリシー</a>に同意したものとみなされます。
                     </>
                   ) : (
                     <>
                       By logging in, you agree to our
-                      <a href="#" className="underline hover:text-gray-400 mx-1" onClick={(e) => { e.preventDefault(); setShowTermsModal(true); }}>Terms of Service</a> and
-                      <a href="#" className="underline hover:text-gray-400 ml-1" onClick={(e) => { e.preventDefault(); setShowPrivacyModal(true); }}>Privacy Policy</a>.
+                      <a href="/terms.html" target="_blank" rel="noopener noreferrer" className="underline hover:text-gray-400 mx-1">Terms of Service</a> and
+                      <a href="/privacy.html" target="_blank" rel="noopener noreferrer" className="underline hover:text-gray-400 ml-1">Privacy Policy</a>.
                     </>
                   )}
                 </p>

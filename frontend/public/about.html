@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>gene46について | AI進化・遺伝的アルゴリズムシミュレーション</title>
+  <style>
+    body {
+      background-color: #07080d;
+      color: #cbd5e1;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      line-height: 1.6;
+      margin: 0;
+      padding: 0;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 40px 20px;
+    }
+    h1, h2, h3 {
+      color: #f1f5f9;
+      font-family: 'Outfit', sans-serif;
+    }
+    h1 {
+      border-bottom: 2px solid rgba(168, 85, 247, 0.3);
+      padding-bottom: 10px;
+      font-size: 2.2rem;
+    }
+    h2 {
+      margin-top: 40px;
+      border-bottom: 1px solid rgba(168, 85, 247, 0.1);
+      padding-bottom: 8px;
+    }
+    .badge {
+      background: linear-gradient(135deg, #a855f7, #6366f1);
+      color: white;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      font-weight: bold;
+      margin-right: 8px;
+    }
+    .meta {
+      color: #64748b;
+      font-size: 0.9rem;
+      margin-bottom: 30px;
+    }
+    .card {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 12px;
+      padding: 20px;
+      margin: 20px 0;
+    }
+    a {
+      color: #a855f7;
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+    footer {
+      margin-top: 60px;
+      border-top: 1px solid #1e293b;
+      padding-top: 20px;
+      text-align: center;
+      color: #64748b;
+      font-size: 0.85rem;
+    }
+    .back-btn {
+      display: inline-block;
+      margin-bottom: 20px;
+      background: rgba(168, 85, 247, 0.1);
+      border: 1px solid rgba(168, 85, 247, 0.2);
+      padding: 8px 16px;
+      border-radius: 8px;
+      color: #c084fc;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+    .back-btn:hover {
+      background: rgba(168, 85, 247, 0.2);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <a href="/" class="back-btn">← アプリに戻る / Back to App</a>
+    
+    <h1>gene46 について <span class="badge">About the Project</span></h1>
+    <div class="meta">公開日: 2026年6月22日 | Last Updated: 2026年7月2日</div>
+    
+    <section>
+      <h2>概要 / Overview</h2>
+      <p>
+        <strong>gene46</strong>は、遺伝的アルゴリズム（Genetic Algorithm: GA）と進化論の仕組みを利用した、AI生成の遺伝子型ジェネレーティブアート（個体）を淘汰・進化させるシミュレーションゲーム兼アート探索ツールです。
+      </p>
+      <p>
+        ユーザーの「左右のスワイプ選択」による環境淘汰（自然選択）を通じて、数百万通りの幾何学模様やモザイクパターンの中から優れた個体を次の世代へ残し、新しい世代へ自動進化（交叉・突然変異）させていきます。
+      </p>
+      
+      <hr style="border: 0; border-top: 1px solid rgba(255, 255, 255, 0.05); margin: 30px 0;">
+      
+      <p>
+        <strong>gene46</strong> is an evolutionary simulation game and generative art exploration tool inspired by Genetic Algorithms (GA) and the theory of natural selection.
+      </p>
+      <p>
+        Through simple "left or right swiping" selection by users, the system performs natural selection. It combines, mutates, and evolves lines and mosaic geometry patterns across generations to discover unique visual shapes.
+      </p>
+    </section>
+
+    <section>
+      <h2>遺伝的アルゴリズムの仕組み / How Genetic Algorithm Works</h2>
+      
+      <div class="card">
+        <h3>1. 淘汰と選択 / Selection</h3>
+        <p>
+          各世代に存在する個体群（Specimens）に対して、ユーザーが「いいね（残す）」か「ダメ（淘汰）」をスワイプで評価します。スワイプにより生存に適した個体が選別され、選択された個体が親となって次世代を紡ぎます。
+        </p>
+      </div>
+
+      <div class="card">
+        <h3>2. 交叉 / Crossover</h3>
+        <p>
+          選択された2つの親個体のDNA（幾何学パラメータやモザイク遺伝情報）を掛け合わせます。これにより、親の特徴（形やパターン）を引き継いだ、多様な子孫が作り出されます。
+        </p>
+      </div>
+
+      <div class="card">
+        <h3>3. 突然変異 / Mutation</h3>
+        <p>
+          進化が特定のパターンに膠着（局所解への収束）するのを防ぐため、一定の確率でDNAにランダムな微変化が生じます。これによって全く新しい形状や予想外の美しいパターンが生まれる可能性が生まれます。
+        </p>
+      </div>
+    </section>
+
+    <section>
+      <h2>進化プロジェクト（スレッド） / Threads</h2>
+      <p>
+        本サービスでは、進化の方向性を決める複数の「スレッド（進化系統）」が存在します。線描画（Line Art）を極めるスレッドや、モザイク（Mosaic Art）を進化させるスレッドがあり、ユーザーは好みの系統をフォークして自分だけの進化の分岐を作り出すことができます。
+      </p>
+    </section>
+
+    <footer>
+      <p>&copy; 2026 gene46 Project. All rights reserved.</p>
+      <p>
+        <a href="/terms.html">利用規約</a> | 
+        <a href="/privacy.html">プライバシーポリシー</a> | 
+        <a href="/legal.html">特定商取引法に基づく表記</a>
+      </p>
+    </footer>
+  </div>
+</body>
+</html>
