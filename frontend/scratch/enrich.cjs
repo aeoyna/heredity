@@ -7,8 +7,8 @@ const ADSENSE_PUB_ID = 'ca-pub-3834095799856701';
 const articles = {
   'ga-basics.html': {
     title: '遺伝的アルゴリズム（GA）とは？仕組みと基本プロセスを徹底解説',
-    desc: '生物進化のメカニズムを計算機に応用した遺伝的アルゴリズム（GA）について、初期世代の生成から選択、交叉、突然変異までの基本プロセスをわかりやすく解説します。',
-    keywords: '遺伝的アルゴリズム, GA, 選択淘汰, 交叉, 突然変異, AI進化',
+    desc: '生物進化のメカニズムを計算機に応用した遺伝的アルゴリズム（GA）の仕組みを解説。初期世代から選択淘汰、交叉、突然変異までの基本プロセスを、スワイプ進化ゲーム「gene46（ジーン46）」の基礎知識として解説します。',
+    keywords: '遺伝的アルゴリズム, GA, 選択淘汰, 交叉, 突然変異, AI進化, gene46, ジーン46, ジーン 46, ジーン４６',
     category: 'アルゴリズム超入門',
     recommendations: [
       { url: 'crossover.html', title: '進化の核となる「交叉（Crossover）」の仕組み' },
@@ -18,8 +18,8 @@ const articles = {
   },
   'crossover.html': {
     title: '進化の核となる「交叉（Crossover）」の仕組み',
-    desc: '遺伝的アルゴリズムにおいて、親の優秀なDNA情報を掛け合わせて新たな子孫を作る「交叉（Crossover）」のメカニズムを、一点交叉や一様交叉などの種類と併せて徹底解説。',
-    keywords: '交叉, Crossover, 一点交叉, 一様交叉, 遺伝子シャッフル, 進化アルゴリズム',
+    desc: '遺伝的アルゴリズムにおいて、親の優秀なDNA情報を掛け合わせて新たな子孫を作る「交叉（Crossover）」のメカニズムを、一点交叉や一様交叉などの種類と併せて徹底解説。ジーン46の進化の核となる仕組み。',
+    keywords: '交叉, Crossover, 一点交叉, 一様交叉, 遺伝子シャッフル, 進化アルゴリズム, gene46, ジーン46, ジーン 46, ジーン４６',
     category: 'アルゴリズム詳細',
     recommendations: [
       { url: 'ga-basics.html', title: '遺伝的アルゴリズム（GA）とは？仕組みと基本プロセスを徹底解説' },
@@ -29,8 +29,8 @@ const articles = {
   },
   'mutation.html': {
     title: 'なぜ突然変異（Mutation）が必要なのか？進化の多様性',
-    desc: '遺伝的アルゴリズム（GA）における突然変異（Mutation）の決定的な役割。遺伝的多様性を維持し、局所解（行き詰まり）から脱出するための突然変異率の重要性を解説します。',
-    keywords: '突然変異, Mutation, 突然変異率, 多様性, 局所解, 早期収束',
+    desc: '遺伝的アルゴリズム（GA）における突然変異（Mutation）の役割。遺伝的多様性を維持し、局所解（行き詰まり）から脱出するための突然変異率の重要性を解説します。ジーン46で多様なアートを生み出す秘訣。',
+    keywords: '突然変異, Mutation, 突然変異率, 多様性, 局所解, 早期収束, gene46, ジーン46, ジーン 46, ジーン４６',
     category: 'アルゴリズム詳細',
     recommendations: [
       { url: 'ga-basics.html', title: '遺伝的アルゴリズム（GA）とは？仕組みと基本プロセスを徹底解説' },
@@ -40,8 +40,8 @@ const articles = {
   },
   'line-vs-mosaic.html': {
     title: '線画（Line）とモザイク（Mosaic）のDNAパラメータの違い',
-    desc: 'gene46に搭載されている2つのジェネレーティブアートモデル、線描画（Line Art）とモザイク（Mosaic Art）におけるDNAパラメータの構造や数式による表現方法の違いを技術解説。',
-    keywords: '線画DNA, モザイクDNA, ジェネレーティブアート, パラメータ空間, 数値配列',
+    desc: 'スワイプ進化ゲーム「gene46（ジーン46）」に搭載されている2つのジェネレーティブアートモデル、線描画（Line Art）とモザイク（Mosaic Art）におけるDNAパラメータの構造や表現方法の違いを技術解説。',
+    keywords: '線画DNA, モザイクDNA, ジェネレーティブアート, パラメータ空間, 数値配列, gene46, ジーン46, ジーン 46, ジーン４６',
     category: 'システム・技術仕様',
     recommendations: [
       { url: 'generative-art.html', title: 'AIジェネレーティブアートと生物学的進化の融合' },
@@ -51,8 +51,8 @@ const articles = {
   },
   'local-optima.html': {
     title: '進化の落とし穴「局所最適解」とその脱出方法',
-    desc: '進化シミュレーションで発生する行き詰まり「局所最適解（ローカルオプティマ）」の原因。突然変異の調整や、スレッドフォーク機能がもたらす進化ブランチの強みを解説。',
-    keywords: '局所最適解, 早期収束, ローカルオプティマ, スレッドフォーク, 進化の停滞',
+    desc: '進化シミュレーション「ジーン46」で発生する行き詰まり「局所最適解（ローカルオプティマ）」の原因。突然変異の調整や、スレッドフォーク機能がもたらす進化ブランチの強みを解説。',
+    keywords: '局所最適解, 早期収束, ローカルオプティマ, スレッドフォーク, 進化の停滞, gene46, ジーン46, ジーン 46, ジーン４６',
     category: 'アルゴリズム詳細',
     recommendations: [
       { url: 'mutation.html', title: 'なぜ突然変異（Mutation）が必要なのか？進化の多様性' },
@@ -62,19 +62,19 @@ const articles = {
   },
   'real-world-ga.html': {
     title: '現実世界のエンジニアリングで活躍する遺伝的アルゴリズム',
-    desc: '新幹線の先頭形状デザイン、NASAの宇宙船アンテナ、電車の運行ダイヤやスタッフシフト作成など、現実社会の難解な最適化問題を解決する遺伝的アルゴリズムの実用例を紹介。',
-    keywords: '新幹線デザイン, 空力設計, アンテナ設計, NASA, ダイヤ最適化, スケジューリング',
+    desc: '新幹線の先頭形状デザイン、NASAの宇宙船アンテナ、運行ダイヤ最適化など、現実社会の難解な最適化問題を解決する遺伝的アルゴリズムの実用例を紹介。「ジーン46」の背景にある応用技術。',
+    keywords: '新幹線デザイン, 空力設計, アンテナ設計, NASA, ダイヤ最適化, スケジューリング, gene46, ジーン46, ジーン 46, ジーン４６',
     category: 'アルゴリズム応用',
     recommendations: [
       { url: 'ga-basics.html', title: '遺伝的アルゴリズム（GA）とは？仕組みと基本プロセスを徹底解説' },
       { url: 'local-optima.html', title: '進化の落とし穴「局所最適解」とその脱出方法' },
-      { url: 'human-ai-collaboration.html', title: '人間とAI hedge design：選択淘汰が生み出す未来' }
+      { url: 'human-ai-collaboration.html', title: '人間とAIの協調デザイン：選択淘汰が生み出す未来' }
     ]
   },
   'generative-art.html': {
     title: 'AIジェネレーティブアートと生物学的進化の融合',
-    desc: '人間の感性を適応度スコアとする「インタラクティブ進化計算（IEC）」に基づくジェネレーティブアートの魅力。作者すら予想できない機能美と偶発的デザインの世界。',
-    keywords: 'ジェネレーティブアート, インタラクティブ進化計算, IEC, クリエイティブコーディング',
+    desc: '人間の感性を適応度スコアとする「インタラクティブ進化計算（IEC）」に基づくジェネレーティブアートの魅力。スワイプ進化アプリ「ジーン46（gene46）」における、作者すら予想できない機能美とデザイン。',
+    keywords: 'ジェネレーティブアート, インタラクティブ進化計算, IEC, クリエイティブコーディング, gene46, ジーン46, ジーン 46, ジーン４６',
     category: 'ジェネレーティブアート',
     recommendations: [
       { url: 'line-vs-mosaic.html', title: '線画（Line）とモザイク（Mosaic）のDNAパラメータの違い' },
@@ -84,8 +84,8 @@ const articles = {
   },
   'breeding-tips.html': {
     title: 'gene46攻略ガイド：美しい個体を育てるコツ',
-    desc: 'スワイプ進化ゲーム「gene46」の完全攻略ガイド。初期世代の選択基準、進化方向の一貫性、フォーク（1000ソウル消費）やスタミナ上限解放を活かした美しい個体の育て方。',
-    keywords: 'gene46攻略, 美しい個体, 選択基準, フォーク機能, スタミナ上限解放',
+    desc: 'スワイプ進化ゲーム「gene46（ジーン46）」の完全攻略ガイド。初期世代の選択基準、進化方向の一貫性、フォーク（1000ソウル消費）やスタミナ上限解放を活かした美しい個体の育て方。',
+    keywords: 'gene46攻略, 美しい個体, 選択基準, フォーク機能, スタミナ上限解放, ジーン46, ジーン 46, ジーン４６',
     category: 'gene46攻略',
     recommendations: [
       { url: 'local-optima.html', title: '進化の落とし穴「局所最適解」とその脱出方法' },
@@ -95,8 +95,8 @@ const articles = {
   },
   'human-ai-collaboration.html': {
     title: '人間とAIの協調デザイン：選択淘汰が生み出す未来',
-    desc: 'AIに呪文で指示を出すプロンプトエンジニアリングから、AIの選択肢を人間が選別し共進化する「協調デザイン（Co-design）」へ。ジェネレーティブデザインの可能性を語る。',
-    keywords: '協調デザイン, Co-design, 創造性, ジェネレーティブデザイン, プロンプトエンジニアリング',
+    desc: 'AIの選択肢を人間が選別し共進化する「協調デザイン（Co-design）」について。「ジーン46（gene46）」のようなジェネレーティブデザインの可能性を語る。',
+    keywords: '協調デザイン, Co-design, 創造性, ジェネレーティブデザイン, プロンプトエンジニアリング, gene46, ジーン46, ジーン 46, ジーン４６',
     category: 'コラム・未来予測',
     recommendations: [
       { url: 'generative-art.html', title: 'AIジェネレーティブアートと生物学的進化の融合' },
@@ -106,8 +106,8 @@ const articles = {
   },
   'history-of-ga.html': {
     title: '遺伝的アルゴリズムの歴史：ダーウィンの進化論から計算機科学へ',
-    desc: 'ダーウィンの「種の起源」から、アラン・チューリングの進化機械構想、精度高い数値を誇るジョン・ホランドのGA定式化に至るまでの歴史を解説。',
-    keywords: 'GA歴史, 種の起源, ダーウィン, アラン・チューリング, ジョン・ホランド, スキーマ定理',
+    desc: 'ダーウィンの「種の起源」から、アラン・チューリングの進化機械構想、ジョン・ホランドのGA定式化に至るまでの歴史を解説。スワイプ進化ゲーム「ジーン46」のルーツを探る。',
+    keywords: 'GA歴史, 種の起源, ダーウィン, アラン・チューリング, ジョン・ホランド, スキーマ定理, gene46, ジーン46, ジーン 46, ジーン４６',
     category: 'アルゴリズム歴史',
     recommendations: [
       { url: 'ga-basics.html', title: '遺伝的アルゴリズム（GA）とは？仕組みと基本プロセスを徹底解説' },
@@ -130,17 +130,21 @@ Object.keys(articles).forEach(filename => {
   let content = fs.readFileSync(filepath, 'utf8');
   const metadata = articles[filename];
 
-  // Prevent duplicate insertion of head snippets if script already runs
-  if (!content.includes('adsbygoogle.js')) {
-    const headSnippet = `
-    <meta name="description" content="${metadata.desc}">
-    <meta name="keywords" content="${metadata.keywords}">
-    <link rel="canonical" href="https://gene46.net/blog/${filename}">
-    <!-- Google AdSense Auto Ads -->
-    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_PUB_ID}" crossorigin="anonymous"></script>
-    `;
-    content = content.replace('</head>', `${headSnippet}\n</head>`);
-  }
+  // Clean up any existing description and keywords tags, and rewrite them along with AdSense snippet
+  content = content.replace(/<meta\s+name="description"\s+content="[^"]*"\s*\/?>\s*/gi, '');
+  content = content.replace(/<meta\s+name="keywords"\s+content="[^"]*"\s*\/?>\s*/gi, '');
+  content = content.replace(/<link\s+rel="canonical"\s+href="[^"]*"\s*\/?>\s*/gi, '');
+  content = content.replace(/<!-- Google AdSense Auto Ads -->\s*/gi, '');
+  content = content.replace(/<script\s+async\s+src="https:\/\/pagead2\.googlesyndication\.com\/pagead\/js\/adsbygoogle\.js\?client=ca-pub-\d+"\s+crossorigin="anonymous"><\/script>\s*/gi, '');
+
+  const headSnippet = `
+  <meta name="description" content="${metadata.desc}">
+  <meta name="keywords" content="${metadata.keywords}">
+  <link rel="canonical" href="https://gene46.net/blog/${filename}">
+  <!-- Google AdSense Auto Ads -->
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_PUB_ID}" crossorigin="anonymous"></script>
+  `;
+  content = content.replace('</head>', `${headSnippet}\n</head>`);
 
   // Prevent duplicate breadcrumbs
   if (!content.includes('class="breadcrumbs"')) {

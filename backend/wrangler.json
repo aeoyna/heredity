@@ -11,7 +11,8 @@
     }
   ],
   "vars": {
-    "GOOGLE_CLIENT_ID": "383409579985-gv48qltpgbimv6csmjhqveh1chr9gt2k.apps.googleusercontent.com"
+    "GOOGLE_CLIENT_ID": "383409579985-gv48qltpgbimv6csmjhqveh1chr9gt2k.apps.googleusercontent.com",
+    "ADMIN_SECRET": "admin-secret-key-1234"
   },
   "assets": {
     "directory": "../frontend/dist",

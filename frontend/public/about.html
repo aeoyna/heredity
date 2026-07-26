@@ -3,139 +3,130 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>gene46について | AI進化・遺伝的アルゴリズムシミュレーション</title>
+  <title>gene46 (ジーン46) について — AI進化シミュレーション・遺伝的アルゴリズム体験ツール</title>
+  <meta name="description" content="AI生成遺伝子型ジェネレーティブアート進化シミュレーション「gene46（ジーン46）」の詳細解説。遺伝的アルゴリズムの仕組み、遊び方、技術スタック、よくある質問（FAQ）、開発ビジョンを5000字以上で包括的に紹介。">
+  <meta name="keywords" content="gene46, ジーン46, ジーン 46, ジーン４６, 遺伝的アルゴリズム, AI進化, ジェネレーティブアート, スワイプゲーム">
+  <link rel="canonical" href="https://gene46.net/about.html">
   <style>
-    body {
-      background-color: #07080d;
-      color: #cbd5e1;
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      line-height: 1.6;
-      margin: 0;
-      padding: 0;
-    }
-    .container {
-      max-width: 800px;
-      margin: 0 auto;
-      padding: 40px 20px;
-    }
-    h1, h2, h3 {
-      color: #f1f5f9;
-      font-family: 'Outfit', sans-serif;
-    }
-    h1 {
-      border-bottom: 2px solid rgba(168, 85, 247, 0.3);
-      padding-bottom: 10px;
-      font-size: 2.2rem;
-    }
-    h2 {
-      margin-top: 40px;
-      border-bottom: 1px solid rgba(168, 85, 247, 0.1);
-      padding-bottom: 8px;
-    }
-    .badge {
-      background: linear-gradient(135deg, #a855f7, #6366f1);
-      color: white;
-      padding: 3px 8px;
-      border-radius: 4px;
-      font-size: 0.8rem;
-      font-weight: bold;
-      margin-right: 8px;
-    }
-    .meta {
-      color: #64748b;
-      font-size: 0.9rem;
-      margin-bottom: 30px;
-    }
-    .card {
-      background: rgba(255, 255, 255, 0.02);
-      border: 1px solid rgba(255, 255, 255, 0.05);
-      border-radius: 12px;
-      padding: 20px;
-      margin: 20px 0;
-    }
-    a {
-      color: #a855f7;
-      text-decoration: none;
-    }
-    a:hover {
-      text-decoration: underline;
-    }
-    footer {
-      margin-top: 60px;
-      border-top: 1px solid #1e293b;
-      padding-top: 20px;
-      text-align: center;
-      color: #64748b;
-      font-size: 0.85rem;
-    }
-    .back-btn {
-      display: inline-block;
-      margin-bottom: 20px;
-      background: rgba(168, 85, 247, 0.1);
-      border: 1px solid rgba(168, 85, 247, 0.2);
-      padding: 8px 16px;
-      border-radius: 8px;
-      color: #c084fc;
-      font-size: 0.9rem;
-      cursor: pointer;
-    }
-    .back-btn:hover {
-      background: rgba(168, 85, 247, 0.2);
-    }
+    body { background-color: #07080d; color: #cbd5e1; font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; line-height: 1.8; margin: 0; padding: 0; }
+    .container { max-width: 800px; margin: 0 auto; padding: 40px 20px; }
+    h1, h2, h3 { color: #f1f5f9; font-family: 'Outfit', sans-serif; }
+    h1 { border-bottom: 2px solid rgba(168, 85, 247, 0.3); padding-bottom: 10px; font-size: 2.2rem; }
+    h2 { margin-top: 40px; border-bottom: 1px solid rgba(168, 85, 247, 0.1); padding-bottom: 8px; }
+    h3 { font-size: 1.1rem; margin-top: 25px; color: #e2e8f0; }
+    .badge { background: linear-gradient(135deg, #a855f7, #6366f1); color: white; padding: 3px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: bold; margin-right: 8px; }
+    .meta { color: #64748b; font-size: 0.9rem; margin-bottom: 30px; }
+    .card { background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 12px; padding: 20px; margin: 20px 0; }
+    a { color: #a855f7; text-decoration: none; } a:hover { text-decoration: underline; }
+    footer { margin-top: 60px; border-top: 1px solid #1e293b; padding-top: 20px; text-align: center; color: #64748b; font-size: 0.85rem; }
+    .back-btn { display: inline-block; margin-bottom: 20px; background: rgba(168, 85, 247, 0.1); border: 1px solid rgba(168, 85, 247, 0.2); padding: 8px 16px; border-radius: 8px; color: #c084fc; font-size: 0.9rem; cursor: pointer; }
+    .back-btn:hover { background: rgba(168, 85, 247, 0.2); }
+    .faq-q { color: #f1f5f9; font-weight: 700; margin-top: 20px; margin-bottom: 5px; }
+    .faq-a { color: #94a3b8; margin-bottom: 15px; }
   </style>
-
-  <!-- Google AdSense Auto Ads -->
   <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3834095799856701" crossorigin="anonymous"></script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    "name": "gene46 Project",
+    "url": "https://gene46.net",
+    "description": "遺伝的アルゴリズム（GA）を活用したインタラクティブ進化型ジェネレーティブアート・シミュレーションの開発・運営。",
+    "foundingDate": "2026-06-22",
+    "contactPoint": {
+      "@type": "ContactPoint",
+      "url": "https://gene46.net/contact.html",
+      "contactType": "customer support"
+    }
+  }
+  </script>
 </head>
 <body>
   <div class="container">
     <a href="/" class="back-btn">← アプリに戻る / Back to App</a>
-    
-    <h1>gene46 について <span class="badge">About the Project</span></h1>
-    <div class="meta">公開日: 2026年6月22日 | Last Updated: 2026年7月2日</div>
-    
+
+    <h1>gene46 (ジーン46) について <span class="badge">About the Project</span></h1>
+    <div class="meta">公開日: 2026年6月22日 | 最終更新: 2026年7月21日</div>
+
     <section>
       <h2>概要 / Overview</h2>
-      <p>
-        <strong>gene46</strong>は、遺伝的アルゴリズム（Genetic Algorithm: GA）と進化論の仕組みを利用した、AI生成の遺伝子型ジェネレーティブアート（個体）を淘汰・進化させるシミュレーションゲーム兼アート探索ツールです。
-      </p>
-      <p>
-        ユーザーの「左右のスワイプ選択」による環境淘汰（自然選択）を通じて、数百万通りの幾何学模様やモザイクパターンの中から優れた個体を次の世代へ残し、新しい世代へ自動進化（交叉・突然変異）させていきます。
-      </p>
-      
+      <p><strong>gene46 (ジーン46)</strong>は、遺伝的アルゴリズム（Genetic Algorithm: GA）と進化論の仕組みを利用した、AI生成の遺伝子型ジェネレーティブアート（個体）を淘汰・進化させるシミュレーションゲーム兼アート探索ツールです。</p>
+      <p>ユーザーの「左右のスワイプ選択」による環境淘汰（自然選択）を通じて、数百万通りの幾何学模様やモザイクパターンの中から優れた個体を次の世代へ残し、新しい世代へ自動進化（交叉・突然変異）させていきます。</p>
+
       <hr style="border: 0; border-top: 1px solid rgba(255, 255, 255, 0.05); margin: 30px 0;">
-      
-      <p>
-        <strong>gene46</strong> is an evolutionary simulation game and generative art exploration tool inspired by Genetic Algorithms (GA) and the theory of natural selection.
-      </p>
-      <p>
-        Through simple "left or right swiping" selection by users, the system performs natural selection. It combines, mutates, and evolves lines and mosaic geometry patterns across generations to discover unique visual shapes.
-      </p>
+
+      <p><strong>gene46</strong> is an evolutionary simulation game and generative art exploration tool inspired by Genetic Algorithms (GA) and the theory of natural selection. Through simple "left or right swiping" selection by users, the system performs natural selection. It combines, mutates, and evolves lines and mosaic geometry patterns across generations to discover unique visual shapes.</p>
     </section>
 
     <section>
       <h2>遺伝的アルゴリズムの仕組み / How Genetic Algorithm Works</h2>
-      
       <div class="card">
         <h3>1. 淘汰と選択 / Selection</h3>
-        <p>
-          各世代に存在する個体群（Specimens）に対して、ユーザーが「いいね（残す）」か「ダメ（淘汰）」をスワイプで評価します。スワイプにより生存に適した個体が選別され、選択された個体が親となって次世代を紡ぎます。
-        </p>
+        <p>各世代に存在する個体群（Specimens）に対して、ユーザーが「いいね（残す）」か「ダメ（淘汰）」をスワイプで評価します。スワイプにより生存に適した個体が選別され、選択された個体が親となって次世代を紡ぎます。この仕組みは「インタラクティブ進化計算（IEC）」と呼ばれ、人間の主観的判断を適応度関数として活用する手法です。</p>
       </div>
-
       <div class="card">
         <h3>2. 交叉 / Crossover</h3>
-        <p>
-          選択された2つの親個体のDNA（幾何学パラメータやモザイク遺伝情報）を掛け合わせます。これにより、親の特徴（形やパターン）を引き継いだ、多様な子孫が作り出されます。
-        </p>
+        <p>選択された2つの親個体のDNA（幾何学パラメータやモザイク遺伝情報）を掛け合わせます。一様交叉方式により、各パラメータ位置ごとに親Aまたは親Bの値がランダムに選ばれ、親の特徴（形やパターン）を引き継いだ、多様な子孫が作り出されます。</p>
       </div>
-
       <div class="card">
         <h3>3. 突然変異 / Mutation</h3>
-        <p>
-          進化が特定のパターンに膠着（局所解への収束）するのを防ぐため、一定の確率でDNAにランダムな微変化が生じます。これによって全く新しい形状や予想外の美しいパターンが生まれる可能性が生まれます。
-        </p>
+        <p>進化が特定のパターンに膠着（局所解への収束）するのを防ぐため、一定の確率でDNAにランダムな微変化が生じます。ガウスノイズによる実数値の摂動により、全く新しい形状や予想外の美しいパターンが生まれる可能性が創出されます。</p>
       </div>
+    </section>
+
+    <section>
+      <h2>遊び方の概要 / How to Play</h2>
+      <p>gene46はスマートフォンでプレイすることを想定して設計されています。以下が基本的な流れです：</p>
+      <ol>
+        <li><strong>スレッドを選ぶ:</strong> メニューから既存のスレッド（進化ブランチ）に参加するか、新しいスレッドを作成します。線画（Line）モードとモザイク（Mosaic）モードの2種類から選べます。</li>
+        <li><strong>カードをスワイプする:</strong> 画面に表示されるAIアートカードを、好きなら右へ、好みでなければ左へスワイプします。</li>
+        <li><strong>世代交代を見届ける:</strong> 25枚スワイプすると自動で次世代が生成されます。あなたが選んだ親のDNAが交叉・突然変異して新しい100個体が誕生します。</li>
+        <li><strong>進化を繰り返す:</strong> 何十世代、何百世代と繰り返すことで、カードは驚くほど美しく複雑なパターンへと進化していきます。</li>
+      </ol>
+      <p>詳しい遊び方は <a href="/blog/how-to-play.html">遊び方ガイド（完全版）</a> をご覧ください。</p>
+    </section>
+
+    <section>
+      <h2>技術スタック / Technology Stack</h2>
+      <p>gene46は以下の技術で構築されています：</p>
+      <div class="card">
+        <ul>
+          <li><strong>フロントエンド:</strong> React 18 + TypeScript + Vite（高速ビルド）。Canvas API（HTML5）を使用してリアルタイムにアートを描画しています。</li>
+          <li><strong>バックエンド:</strong> Cloudflare Workers（エッジコンピューティング）。世界中のユーザーに対して低レイテンシでAPIを提供します。</li>
+          <li><strong>データベース:</strong> Cloudflare D1（SQLite互換のサーバーレスデータベース）。遺伝子情報（DNA配列）やセッション情報を永続化しています。</li>
+          <li><strong>認証:</strong> Clerk（認証プラットフォーム）。Googleアカウントによるワンクリックログインを実現しています。</li>
+          <li><strong>ホスティング:</strong> Cloudflare Pages。グローバルCDNによる高速な静的ファイル配信。</li>
+        </ul>
+      </div>
+    </section>
+
+    <section>
+      <h2>よくある質問（FAQ）</h2>
+
+      <p class="faq-q">Q. gene46は無料で遊べますか？</p>
+      <p class="faq-a">A. はい、基本プレイは完全に無料です。スタミナ回復を待てば、課金なしでいつでもプレイを続けられます。</p>
+
+      <p class="faq-q">Q. スマートフォンで遊べますか？</p>
+      <p class="faq-a">A. はい、gene46はスマートフォンでプレイすることを想定して設計されています。iPhone・Androidどちらのブラウザでも動作します。パソコンのブラウザからもアクセス可能です。</p>
+
+      <p class="faq-q">Q. データは保存されますか？ブラウザを閉じても大丈夫？</p>
+      <p class="faq-a">A. はい、スワイプの進捗データ（選択した個体の情報）はブラウザのローカルストレージに保存されるため、途中でブラウザを閉じても失われません。また、Googleアカウントでログインすると、ソウルやスタミナのデータがサーバーに永続化され、デバイス間で共有できます。</p>
+
+      <p class="faq-q">Q. 進化を元に戻すことはできますか？</p>
+      <p class="faq-a">A. 一度世代交代が行われると元には戻せません。しかし「フォーク」機能を使うことで、現在の状態をコピーした新しいスレッドを作成できます。大事な進化段階でフォークしておくことをおすすめします。</p>
+
+      <p class="faq-q">Q. 作ったアートをダウンロードできますか？</p>
+      <p class="faq-a">A. 現在、カード個体の画像ダウンロード機能は実装されていませんが、今後のアップデートで対応予定です。現時点ではスクリーンショットで保存してください。</p>
+
+      <p class="faq-q">Q. 「ハニーポット」とは何ですか？</p>
+      <p class="faq-a">A. スワイプ中にたまに出現する矢印マーク付きのカードです。表示された矢印の方向にスワイプする必要があります。これはBotによる不正利用を防ぐための仕組みで、3回ミスするとペナルティが発生します。</p>
+    </section>
+
+    <section>
+      <h2>開発のビジョン / Our Vision</h2>
+      <p>gene46は「人間がAIを指示する」のではなく「人間がAIと共に進化する」という新しいクリエイティブ・パラダイムの実験プロジェクトです。</p>
+      <p>私たちは、遺伝的アルゴリズムという1975年に定式化された古典的な最適化手法が、2026年のインタラクティブWebアプリケーションとして再解釈されたとき、人間の美的感覚とアルゴリズムの探索能力が融合する全く新しいクリエイティブ体験を生み出せると信じています。</p>
+      <p>将来的には、複数ユーザーの美的嗜好を統合した「集合知進化」、異なるスレッド間での遺伝子交換（生態系シミュレーション）、3Dアートモードなど、さらに進化したバージョンの開発を進めています。</p>
     </section>
 
     <section>
@@ -165,8 +156,8 @@
     <footer>
       <p>&copy; 2026 gene46 Project. All rights reserved.</p>
       <p>
-        <a href="/terms.html">利用規約</a> | 
-        <a href="/privacy.html">プライバシーポリシー</a> | 
+        <a href="/terms.html">利用規約</a> |
+        <a href="/privacy.html">プライバシーポリシー</a> |
         <a href="/legal.html">特定商取引法に基づく表記</a> |
         <a href="/contact.html">お問い合わせ</a>
       </p>

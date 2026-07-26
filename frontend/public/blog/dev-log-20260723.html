@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>開発ログ：ショップ価格改定・新規プロジェクト作成の利便性向上・サムネイル表示不具合の修正 | gene46ブログ</title>
+  <style>
+    body { background-color: #07080d; color: #cbd5e1; font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; line-height: 1.8; margin: 0; padding: 0; }
+    .container { max-width: 750px; margin: 0 auto; padding: 40px 20px; }
+    h1, h2, h3, h4 { color: #f1f5f9; font-family: 'Outfit', sans-serif; font-weight: 800; }
+    h1 { border-bottom: 2px solid rgba(168, 85, 247, 0.3); padding-bottom: 12px; font-size: 2.2rem; margin-bottom: 8px; }
+    h2 { margin-top: 40px; border-bottom: 1px solid rgba(168, 85, 247, 0.1); padding-bottom: 8px; font-size: 1.5rem; }
+    h3 { font-size: 1.2rem; margin-top: 30px; color: #e2e8f0; }
+    .meta { color: #64748b; font-size: 0.85rem; margin-bottom: 30px; }
+    .card { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 24px; margin: 24px 0; }
+    a { color: #a855f7; text-decoration: none; } a:hover { text-decoration: underline; }
+    footer { margin-top: 60px; border-top: 1px solid #1e293b; padding-top: 20px; text-align: center; color: #64748b; font-size: 0.85rem; }
+    .back-btn { display: inline-block; margin-bottom: 20px; background: rgba(168,85,247,0.1); border: 1px solid rgba(168,85,247,0.2); padding: 8px 16px; border-radius: 8px; color: #c084fc; font-size: 0.9rem; cursor: pointer; text-decoration: none; }
+    .back-btn:hover { background: rgba(168,85,247,0.2); }
+  </style>
+  <meta name="description" content="AI進化シミュレータ「gene46」の最新アップデート情報。スタミナ回復・上限UPコストの超大幅引き下げ、ソウルショップでの新規プロジェクト作成のサポート、サムネイル表示不具合（リロード時のnodata化）の根本修正などの詳細をお届けします。">
+  <meta name="keywords" content="gene46, アップデート情報, 開発ログ, スタミナ回復, ソウルショップ, サムネイル不具合, 遺伝的アルゴリズム">
+  <link rel="canonical" href="https://gene46.net/blog/dev-log-20260723.html">
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3834095799856701" crossorigin="anonymous"></script>
+  <!-- Structured Data: BlogPosting -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BlogPosting",
+    "headline": "開発ログ：ショップ価格改定・新規プロジェクト作成の利便性向上・サムネイル表示不具合の修正",
+    "description": "AI進化シミュレータ「gene46」の最新アップデート情報。スタミナ回復・上限UPコストの超大幅引き下げ、ソウルショップでの新規プロジェクト作成のサポート、サムネイル表示不具合（リロード時のnodata化）の根本修正などの詳細をお届けします。",
+    "url": "https://gene46.net/blog/dev-log-20260723.html",
+    "datePublished": "2026-07-23",
+    "author": {
+      "@type": "Organization",
+      "name": "gene46 Project",
+      "url": "https://gene46.net/about.html"
+    },
+    "publisher": {
+      "@type": "Organization",
+      "name": "gene46 Project",
+      "url": "https://gene46.net/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div class="container">
+    <div class="breadcrumbs" style="font-size: 0.8rem; color: #64748b; margin-top: 10px; margin-bottom: 20px;">
+      <a href="/" style="color: #64748b; text-decoration: none;">ホーム</a> &gt;
+      <a href="/blog/index.html" style="color: #64748b; text-decoration: none;">公式ブログ</a> &gt;
+      <span style="color: #cbd5e1;">開発ログ：ショップ価格改定・サムネイル修正など</span>
+    </div>
+    <a href="/blog/index.html" class="back-btn">← 記事一覧に戻る / Back to Blog</a>
+
+    <h1>開発ログ：ショップ価格改定・新規プロジェクト作成の利便性向上・サムネイル表示不具合の修正</h1>
+    <div class="meta">公開日: 2026年7月23日 | カテゴリ: アップデート情報</div>
+
+    <article>
+      <p>AI進化シミュレータ「gene46」をご利用いただきありがとうございます。開発チームです。</p>
+      <p>本日のシステムアップデートにおいて、ユーザーの皆様がより快適に進化シミュレーションを行えるよう、スタミナ周りの価格設定の見直しやショップUIの改善、そしてページ読み込み時にスレッドサムネイル画像が消えてしまう不具合の根本的な修正を行いました。</p>
+
+      <h2>1. スタミナ価格の大幅値下げ</h2>
+      <p>より多くのスワイプによる進化実験を気軽に行えるよう、ソウルショップでのスタミナ関連の価格設定を大幅に値下げいたしました。</p>
+      
+      <div class="card">
+        <h3 style="margin-top: 0; color: #a855f7;">改定後の価格表</h3>
+        <ul>
+          <li><strong>スタミナ回復:</strong> 300 Soul → <strong style="color: #c084fc; font-size: 1.2rem;">30 Soul</strong> (1/10に値下げ！)</li>
+          <li><strong>スタミナ上限UP:</strong> 1000 Soul → <strong style="color: #c084fc; font-size: 1.2rem;">300 Soul</strong> (約1/3に値下げ！)</li>
+        </ul>
+      </div>
+      <p>これにより、集めたSoulを効果的にスタミナへと還元し、進化のサイクルを高速に回転させることが可能になります。</p>
+
+      <h2>2. ソウルショップから「新規プロジェクトを作成」に対応</h2>
+      <p>新しい進化スレッドの立ち上げを円滑にするため、ソウルショップ内に<strong>「新規プロジェクトを作成」</strong>する機能を統合いたしました。ショップ画面の価格表示エリアの下部にフル幅の分かりやすいボタンを配置し、ソウルが十分に貯まっているときにすぐに新しいテーマのアート生成を開始できるよう設計をアップデートしました。</p>
+      <p>※なお、フォーク（スレッド分岐）機能は高度な隠し機能として位置づけられたため、ソウルショップの一覧からは削除され、UI構成がよりシンプルで分かりやすくなっています。</p>
+
+      <h2>3. ページリロード時のサムネイル「nodata」不具合の修正</h2>
+      <p>これまで、ページをリロードしたり再訪問したりした際に、一度も選択していないプロジェクト（スレッド）のサムネイル画像が読み込まれず、「LINE」や「MOSAIC」といったテキストのみのプレースホルダー表示になってしまう現象（いわゆる「No Data」状態）が発生していました。</p>
+      
+      <h3>原因と対策</h3>
+      <p>従来のシステムでは、プレビューサムネイル用のDNAデータが「スレッドに実際に訪問してカードデータを取得したとき」に初めてメモリ上にキャッシュされる仕組みになっていました。そのため、ページロード時点ではプレビュー用DNAが存在せず、描画エンジンがテキストのみを代用で描画していました。</p>
+      
+      <p>この問題を解決するため、サーバー側のスレッド一覧取得API (<code>GET /api/threads</code>) をアップデートし、各スレッドにおける最新世代の「アクティブな代表標本（ハニーポットを除く）」のDNAデータをデータベースから <code>LEFT JOIN</code> であらかじめ結合して返すよう設計を変更しました。</p>
+      <p>フロントエンドは、このサーバー提供のプレビューDNAを受け取り、ロード時すぐにサムネイルを自動描画するようにしました。これにより、<strong>ページを開いた瞬間にすべてのプロジェクトのサムネイルが美しく描画される</strong>ようになりました。</p>
+
+      <h2>4. まとめ</h2>
+      <p>今回のアップデートにより、お気に入りの進化系を停滞させずにスムーズに確認・育成できるようになりました。ぜひ大幅に値下げされたスタミナを活用し、未踏の進化アートを発見してください！</p>
+
+      <div class="card" style="background: rgba(168,85,247,0.01); border: 1px solid rgba(168,85,247,0.08); font-size: 0.85rem; margin-top: 40px; border-radius: 12px; padding: 20px;">
+        <h4 style="margin-top: 0; color: #c084fc; font-weight: bold; font-size: 0.95rem; margin-bottom: 8px;">この記事の執筆・監修</h4>
+        <p style="margin-bottom: 0; color: #94a3b8; line-height: 1.6;"><strong>gene46 運営・開発チーム</strong><br>遺伝的アルゴリズム（GA）を用いた自律進化型ジェネレーティブアートの挙動および最適化について研究・開発を行っているプロジェクトチームです。</p>
+      </div>
+    </article>
+    <footer>
+      <p>&copy; 2026 gene46 Project. All rights reserved.</p>
+      <p><a href="/">アプリに戻る</a> | <a href="/terms.html">利用規約</a> | <a href="/privacy.html">プライバシーポリシー</a> | <a href="/legal.html">特定商取引法に基づく表記</a> | <a href="/contact.html">お問い合わせ</a></p>
+    </footer>
+  </div>
+</body>
+</html>

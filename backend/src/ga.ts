@@ -90,8 +90,9 @@ export async function evolveThread(
   }
 
   // 2.5 Skip evolution if no one has voted yet (reduces D1 writes)
+  // ただし、非同期インサート失敗などで個体数自体が不足している場合は、進化をスキップせずに再生成を許容する
   const totalVotes = population.reduce((sum, ind) => sum + ind.likes_count + ind.nopes_count, 0);
-  if (totalVotes === 0) {
+  if (totalVotes === 0 && population.length >= 80) {
     console.log(`Thread ${threadId} has 0 votes in generation ${currentGen}. Skipping evolution.`);
     return { currentGen, nextGen: currentGen };
   }
@@ -133,7 +134,8 @@ export async function evolveThread(
       const parentLineA = parentA.dna as LineDNA;
       const parentLineB = parentB.dna as LineDNA;
       const lineChild: LineDNA = [];
-      for (let i = 0; i < 10; i++) {
+      const lineCount = parentLineA.length;
+      for (let i = 0; i < lineCount; i++) {
         const lineGene = Math.random() > 0.5 ? parentLineA[i] : parentLineB[i];
         
         // Mutation: 5% chance per line gene
@@ -201,36 +203,39 @@ export async function evolveThread(
   }
 
   // Insert 3 new honeypots
+  const currentLineCount = threadType === 'line' ? (scoredPopulation[0].dna as LineDNA).length : 10;
   for (let i = 0; i < 3; i++) {
     nextGenerationPool.push({
-      dna: threadType === 'line' ? generateHoneypotLineDNA() : generateHoneypotMosaicDNA(),
+      dna: threadType === 'line' ? generateHoneypotLineDNA(currentLineCount) : generateHoneypotMosaicDNA(),
       isHoneypot: 1
     });
   }
 
   // 1. 代表値の更新 (同期処理)
-  const capturedAt = new Date().toISOString();
-  await db.prepare(`
-    INSERT OR REPLACE INTO thread_history (
-      thread_id, generation, specimen_id, dna, likes_count, nopes_count, is_honeypot, captured_at
-    )
-    SELECT
-      thread_id,
-      generation,
-      id,
-      dna,
-      likes_count,
-      nopes_count,
-      is_honeypot,
-      ?
-    FROM specimens
-    WHERE id = (
-      SELECT id FROM specimens
-      WHERE thread_id = ? AND generation = ?
-      ORDER BY CASE WHEN id = ? THEN 1 ELSE 0 END DESC, likes_count DESC, id ASC
-      LIMIT 1
-    )
-  `).bind(capturedAt, threadId, currentGen, representativeCardId || '').run();
+  if (currentGen % 10 === 0) {
+    const capturedAt = new Date().toISOString();
+    await db.prepare(`
+      INSERT OR REPLACE INTO thread_history (
+        thread_id, generation, specimen_id, dna, likes_count, nopes_count, is_honeypot, captured_at
+      )
+      SELECT
+        thread_id,
+        generation,
+        id,
+        dna,
+        likes_count,
+        nopes_count,
+        is_honeypot,
+        ?
+      FROM specimens
+      WHERE id = (
+        SELECT id FROM specimens
+        WHERE thread_id = ? AND generation = ?
+        ORDER BY CASE WHEN id = ? THEN 1 ELSE 0 END DESC, likes_count DESC, id ASC
+        LIMIT 1
+      )
+    `).bind(capturedAt, threadId, currentGen, representativeCardId || '').run();
+  }
 
   // 2. 最初の20件を同期的にインサート (ユーザーが即座にスワイプ再開できるよう20件にする)
   const firstChunk = nextGenerationPool.slice(0, 20);
@@ -264,10 +269,36 @@ export async function evolveThread(
       await db.batch(chunkStatements);
     }
     
+    // スワイプ評価された本物の個体のDNAを archived_specimens に退避
+    await db.prepare(`
+      INSERT OR IGNORE INTO archived_specimens (id, thread_id, generation, dna, created_at)
+      SELECT id, thread_id, generation, dna, ?
+      FROM specimens
+      WHERE thread_id = ? AND generation = ?
+        AND (likes_count > 0 OR nopes_count > 0)
+        AND is_honeypot = 0
+    `).bind(new Date().toISOString(), threadId, currentGen).run();
+
     // 全インサート後に現世代をアーカイブまたは削除
     await db.prepare(
       "DELETE FROM specimens WHERE thread_id = ? AND generation = ?"
     ).bind(threadId, currentGen).run();
+
+    // 4. セルフクリーニング対策 (データベースが肥大化して容量オーバーになるのを恒久的に防ぐ)
+    // 4.1. 過去の残存個体や、何らかの原因で残った古い世代(現世代の2世代以上前)の不要個体を完全削除
+    await db.prepare(`
+      DELETE FROM specimens
+      WHERE status = 'archived'
+         OR generation < (SELECT current_generation FROM threads WHERE id = specimens.thread_id) - 1
+    `).run();
+
+    // 4.2. 30日以上スワイプしていない、Clerk未登録のアノニマス(ゲスト)セッションデータを自動削除
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    await db.prepare(`
+      DELETE FROM user_sessions
+      WHERE clerk_user_id IS NULL
+        AND last_swipe_at < ?
+    `).bind(thirtyDaysAgo).run();
   })();
 
   // 非同期タスクを実行環境(Wrangler/Cloudflare Workers)の ctx.waitUntil に流す

@@ -44,9 +44,9 @@ export function pickRandom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
-export function generateRandomLineDNA(): LineDNA {
+export function generateRandomLineDNA(lineCount = 10): LineDNA {
   const dna: LineDNA = [];
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < lineCount; i++) {
     dna.push({
       sx: Math.random(),
       sy: Math.random(),
@@ -79,10 +79,10 @@ export function generateRandomMosaicDNA(): MosaicDNA {
   return dna;
 }
 
-export function generateHoneypotLineDNA(): LineDNA {
+export function generateHoneypotLineDNA(lineCount = 10): LineDNA {
   // A honeypot line card is super boring: flat lines or completely uniform zero length
   const dna: LineDNA = [];
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < lineCount; i++) {
     dna.push({
       sx: 0.1,
       sy: 0.9,

@@ -3,174 +3,116 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>遺伝的アルゴリズムの歴史：ダーウィンの進化論から計算機科学へ | gene46ブログ</title>
+  <title>遺伝的アルゴリズムの歴史：ダーウィンの進化論からジョン・ホランドの定式化へ | gene46ブログ</title>
   <style>
-    body {
-      background-color: #07080d;
-      color: #cbd5e1;
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      line-height: 1.8;
-      margin: 0;
-      padding: 0;
-    }
-    .container {
-      max-width: 750px;
-      margin: 0 auto;
-      padding: 40px 20px;
-    }
-    h1, h2, h3, h4 {
-      color: #f1f5f9;
-      font-family: 'Outfit', sans-serif;
-      font-weight: 800;
-    }
-    h1 {
-      border-bottom: 2px solid rgba(168, 85, 247, 0.3);
-      padding-bottom: 12px;
-      font-size: 2.2rem;
-      margin-bottom: 8px;
-    }
-    h2 {
-      margin-top: 40px;
-      border-bottom: 1px solid rgba(168, 85, 247, 0.1);
-      padding-bottom: 8px;
-      font-size: 1.5rem;
-    }
-    h3 {
-      font-size: 1.2rem;
-      margin-top: 30px;
-      color: #e2e8f0;
-    }
-    .meta {
-      color: #64748b;
-      font-size: 0.85rem;
-      margin-bottom: 30px;
-    }
-    .card {
-      background: rgba(255, 255, 255, 0.02);
-      border: 1px solid rgba(255, 255, 255, 0.05);
-      border-radius: 12px;
-      padding: 24px;
-      margin: 24px 0;
-    }
-    a {
-      color: #a855f7;
-      text-decoration: none;
-    }
-    a:hover {
-      text-decoration: underline;
-    }
-    footer {
-      margin-top: 60px;
-      border-top: 1px solid #1e293b;
-      padding-top: 20px;
-      text-align: center;
-      color: #64748b;
-      font-size: 0.85rem;
-    }
-    .back-btn {
-      display: inline-block;
-      margin-bottom: 20px;
-      background: rgba(168, 85, 247, 0.1);
-      border: 1px solid rgba(168, 85, 247, 0.2);
-      padding: 8px 16px;
-      border-radius: 8px;
-      color: #c084fc;
-      font-size: 0.9rem;
-      cursor: pointer;
-      text-decoration: none;
-    }
-    .back-btn:hover {
-      background: rgba(168, 85, 247, 0.2);
-    }
+    body { background-color: #07080d; color: #cbd5e1; font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; line-height: 1.8; margin: 0; padding: 0; }
+    .container { max-width: 750px; margin: 0 auto; padding: 40px 20px; }
+    h1, h2, h3, h4 { color: #f1f5f9; font-family: 'Outfit', sans-serif; font-weight: 800; }
+    h1 { border-bottom: 2px solid rgba(168, 85, 247, 0.3); padding-bottom: 12px; font-size: 2.2rem; margin-bottom: 8px; }
+    h2 { margin-top: 40px; border-bottom: 1px solid rgba(168, 85, 247, 0.1); padding-bottom: 8px; font-size: 1.5rem; }
+    h3 { font-size: 1.2rem; margin-top: 30px; color: #e2e8f0; }
+    .meta { color: #64748b; font-size: 0.85rem; margin-bottom: 30px; }
+    .card { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 24px; margin: 24px 0; }
+    a { color: #a855f7; text-decoration: none; } a:hover { text-decoration: underline; }
+    footer { margin-top: 60px; border-top: 1px solid #1e293b; padding-top: 20px; text-align: center; color: #64748b; font-size: 0.85rem; }
+    .back-btn { display: inline-block; margin-bottom: 20px; background: rgba(168,85,247,0.1); border: 1px solid rgba(168,85,247,0.2); padding: 8px 16px; border-radius: 8px; color: #c084fc; font-size: 0.9rem; cursor: pointer; text-decoration: none; }
+    .back-btn:hover { background: rgba(168,85,247,0.2); }
   </style>
-
-  <meta name="description" content="ダーウィンの「種の起源」から、アラン・チューリングの進化機械構想、精度高い数値を誇るジョン・ホランドのGA定式化に至るまでの歴史を解説。">
-  <meta name="keywords" content="GA歴史, 種の起源, ダーウィン, アラン・チューリング, ジョン・ホランド, スキーマ定理">
+  <meta name="description" content="遺伝的アルゴリズム（GA）の歴史を、チャールズ・ダーウィンの『種の起源』からアラン・チューリングの計算機科学への応用、1975年のジョン・ホランドによるGA定式化まで時系列で辿ります。">
+  <meta name="keywords" content="遺伝的アルゴリズム 歴史, ダーウィン, ジョン・ホランド, アラン・チューリング, 進化計算, gene46, ジーン46">
   <link rel="canonical" href="https://gene46.net/blog/history-of-ga.html">
-  <!-- Google AdSense Auto Ads -->
   <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3834095799856701" crossorigin="anonymous"></script>
-  
+  <!-- Structured Data: BlogPosting -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BlogPosting",
+    "headline": "遺伝的アルゴリズムの歴史：ダーウィンの進化論からジョン・ホランドの定式化へ",
+    "description": "遺伝的アルゴリズム（GA）の歴史を、チャールズ・ダーウィンの『種の起源』からアラン・チューリングの計算機科学への応用、1975年のジョン・ホランドによるGA定式化まで時系列で辿ります。",
+    "url": "https://gene46.net/blog/history-of-ga.html",
+    "datePublished": "2026-07-05",
+    "author": {
+      "@type": "Organization",
+      "name": "gene46 Project",
+      "url": "https://gene46.net/about.html"
+    },
+    "publisher": {
+      "@type": "Organization",
+      "name": "gene46 Project",
+      "url": "https://gene46.net/"
+    }
+  }
+  </script>
 </head>
 <body>
   <div class="container">
-
     <div class="breadcrumbs" style="font-size: 0.8rem; color: #64748b; margin-top: 10px; margin-bottom: 20px;">
-      <a href="/" style="color: #64748b; text-decoration: none;">ホーム</a> &gt; 
-      <a href="/blog/index.html" style="color: #64748b; text-decoration: none;">公式ブログ</a> &gt; 
-      <span style="color: #cbd5e1;">遺伝的アルゴリズムの歴史：ダーウィンの進化論から計算機科学へ</span>
+      <a href="/" style="color: #64748b; text-decoration: none;">ホーム</a> &gt;
+      <a href="/blog/index.html" style="color: #64748b; text-decoration: none;">公式ブログ</a> &gt;
+      <span style="color: #cbd5e1;">遺伝的アルゴリズムの歴史</span>
     </div>
-  
     <a href="/blog/index.html" class="back-btn">← 記事一覧に戻る / Back to Blog</a>
-    
+
     <h1>遺伝的アルゴリズムの歴史：ダーウィンの進化論から計算機科学へ</h1>
     <div class="meta">公開日: 2026年7月5日 | カテゴリ: アルゴリズム歴史</div>
-    
+
     <article>
-      <p>遺伝的アルゴリズム（GA）は、生物学の「進化論」と計算機科学（コンピュータサイエンス）が融合して生まれた、歴史的にも非常に美しい学術的バックグラウンドを持つ技術です。</p>
-      <p>チャールズ・ダーウィンの思想から、現代のデジタル進化にいたるまでの歴史の軌跡をたどります。</p>
+      <p>現在では人工知能や最適化問題の強力なツールとして広く認知されている遺伝的アルゴリズム（GA）ですが、その理論的基盤は19世紀の生物学にまで遡ります。本記事では、GAが誕生するまでの知的系譜を、ダーウィンの自然選択説から現代のコンピュータ科学まで、主要なマイルストーンごとに辿ります。</p>
 
-      <h2>1. すべての始まり：ダーウィンの進化論（1859年）</h2>
-      <p>1859年、チャールズ・ダーウィンは名著『種の起源』を出版し、生物はランダムな変異を持ち、環境に適したものが選択されて生き残るという「自然選択（淘汰説）」を提唱しました。</p>
-      <p>この「シンプルなルール（変異・選択）を繰り返すだけで、自律的に複雑な設計図（DNA）が作られていく」という大発見が、のちに計算機科学者たちへ多大なインスピレーションを与えることになります。</p>
+      <h2>1. チャールズ・ダーウィンと自然選択説（1859年）</h2>
+      <p>すべての始まりは、1859年に出版されたチャールズ・ダーウィンの『種の起源（On the Origin of Species）』です。ダーウィンは、生物が環境に適応するために「自然選択（Natural Selection）」——環境に最も適した個体が生存し、子孫を残す確率が高くなる——というメカニズムによって進化すると提唱しました。</p>
+      <p>この「適者生存（Survival of the Fittest）」の概念は、後に計算機科学者たちが「最適化問題を解くためのアルゴリズム」を設計する際の中核的なインスピレーションとなりました。</p>
 
-      <h2>2. チューリングの先見の明（1950年）</h2>
-      <p>コンピュータの父と呼ばれるアラン・チューリング（Alan Turing）は、1950年の有名な論文「計算機械と知性」の中で、すでに「進化型コンピュータ」のアイデアに言及していました。</p>
-      <p>彼は、人間の知能をコンピュータで作るアプローチとして、ルールを自律的に書き換え、環境に合わせて適合していく「進化的なプロセス（Genetical or Evolutionary Search）」が極めて有効であると予測していました。</p>
+      <h2>2. グレゴール・メンデルと遺伝の法則（1865年）</h2>
+      <p>ダーウィンの進化論は「なぜ種が変化するか」を説明しましたが、「親の形質がどのように子に引き継がれるか」のメカニズムは未解明のままでした。オーストリアの修道士グレゴール・メンデルは、エンドウ豆の交配実験を通じて「遺伝の法則」を発見し、形質が離散的な「遺伝因子（後の遺伝子）」として受け継がれることを明らかにしました。</p>
+      <p>この「遺伝情報の離散的な単位としての伝達」という概念は、コンピュータ上でDNAをビット列や数値配列として表現する「符号化（エンコーディング）」の理論的基盤となっています。</p>
 
-      <h2>3. ジョン・ホランドとGAの定式化（1975年）</h2>
+      <h2>3. アラン・チューリングと計算機による進化シミュレーション（1948年）</h2>
+      <p>コンピュータ科学の父と呼ばれるアラン・チューリングは、1948年の論文「Intelligent Machinery」の中で、機械学習の一形態として「遺伝的探索（Genetical Search）」という概念を提唱しました。ネットワークの接続をランダムに変異させ、評価の高い構成を選択的に保存することで知的な振る舞いを獲得できると述べたのです。</p>
+      <p>これは、コンピュータを用いて進化プロセスをシミュレーションするという着想の、記録に残る最初期の提案の一つです。</p>
+
+      <h2>4. ジョン・ホランドと遺伝的アルゴリズムの定式化（1975年）</h2>
+      <p>遺伝的アルゴリズムを現在の形に定式化したのは、ミシガン大学のジョン・ホランド教授です。1975年の著書『Adaptation in Natural and Artificial Systems』において、選択・交叉・突然変異の3つの操作を中心とした適応型システムの数理的枠組みを発表しました。</p>
+      <p>ホランドはまた、「スキーマ定理（Schema Theorem）」を提唱しました。これは「短く、低次で、高適応度を持つ遺伝子パターン（スキーマ）が、世代を経るごとに指数関数的に集団内で増加する」という定理であり、GAがなぜ効率的に良い解を探索できるのかを数学的に説明する重要な理論です。</p>
+
       <div class="card">
-        <h3>GAの誕生</h3>
-        <p>1970年代に入り、ミシガン大学の教授であった<strong>ジョン・ホランド（John Henry Holland）</strong>が、生物の遺伝機構（染色体、遺伝子、交叉、突然変異）を本格的にデジタルコードに定式化し、「遺伝的アルゴリズム（Genetic Algorithm）」と名付けました。</p>
-        <p>彼は1975年の著書『Adaptation in Natural and Artificial Systems』において、GAの数学的基礎（スキーマ定理など）を証明し、コンピュータが自律的に学習・進化する設計フレームワークを確立しました。</p>
+        <h3>スキーマ定理のイメージ</h3>
+        <p>例えば、「最初の3つの遺伝子座が [高い値, 低い値, 高い値] のパターンを持つ個体は総じて適応度が高い」という傾向がある場合、選択淘汰によってこのパターンを持つ個体が優先的に生き残り、交叉によって他の個体にもこのパターンが広まっていきます。これが「良い遺伝子パターンの暗黙的な並列探索」であり、GAの驚異的な探索効率の源泉です。</p>
       </div>
 
-      <h2>4. 現代、そして自律進化の未来へ</h2>
-      <p>1980〜90年代以降、PCの処理能力の爆発的向上に伴い、GAは「実用的な最適化エンジン」として様々な産業デザイン（新幹線、回路設計、スケジューリング）で花開きました。</p>
-      <p>そして2020年代の現在、GAは深層学習（ディープラーニング）と組み合わされたり、ジェネレーティブアートの創造的エンジンとして、人間と共進化する新しいアートの形を支えています。</p>
-    
-      <!-- Author Profile E-E-A-T -->
-      <div class="card" style="background: rgba(168, 85, 247, 0.01); border: 1px solid rgba(168, 85, 247, 0.08); font-size: 0.85rem; margin-top: 40px; border-radius: 12px; padding: 20px;">
-        <h4 style="margin-top: 0; color: #c084fc; font-weight: bold; font-size: 0.95rem; margin-bottom: 8px;">この記事の執筆・監修</h4>
-        <p style="margin-bottom: 0; color: #94a3b8; line-height: 1.6;">
-          <strong>gene46 運営・開発チーム (GA研究ユニット)</strong><br>
-          遺伝的アルゴリズム（GA）を用いた自律進化型ジェネレーティブアートの挙動および最適化について研究・開発を行っているプロジェクトチームです。ゲーム開発と計算機科学の境界線上で活動しています。
-        </p>
-      </div>
+      <h2>5. 1990年代〜現在：応用の爆発的拡大</h2>
+      <p>1990年代以降、コンピュータの計算能力の飛躍的な向上に伴い、GAは理論研究の枠を超えて実世界の問題解決に広く応用されるようになりました。NASAの宇宙船アンテナ設計、自動車のエアロダイナミクス最適化、金融工学におけるポートフォリオ最適化、さらには芸術分野でのインタラクティブ進化計算（IEC）——gene46もこの系譜に位置する——など、その適用範囲は多岐にわたります。</p>
 
-      <!-- Recommended Articles -->
-      <div style="margin-top: 40px;">
-        <h3 style="font-size: 1.15rem; border-bottom: 1px solid rgba(168, 85, 247, 0.1); padding-bottom: 8px; color: #f1f5f9; font-weight: bold;">おすすめの関連記事</h3>
-        <ul style="list-style: none; padding-left: 0; font-size: 0.9rem; line-height: 2.0; margin-top: 15px;">
-          
-            <li style="margin-bottom: 8px;">
-              <span style="color: #a855f7; margin-right: 6px;">👉</span>
-              <a href="/blog/ga-basics.html" style="color: #c084fc; text-decoration: none; font-weight: 600;">遺伝的アルゴリズム（GA）とは？仕組みと基本プロセスを徹底解説</a>
-            </li>
-          
-            <li style="margin-bottom: 8px;">
-              <span style="color: #a855f7; margin-right: 6px;">👉</span>
-              <a href="/blog/human-ai-collaboration.html" style="color: #c084fc; text-decoration: none; font-weight: 600;">人間とAIの協調デザイン：選択淘汰が生み出す未来</a>
-            </li>
-          
-            <li style="margin-bottom: 8px;">
-              <span style="color: #a855f7; margin-right: 6px;">👉</span>
-              <a href="/blog/real-world-ga.html" style="color: #c084fc; text-decoration: none; font-weight: 600;">現実世界のエンジニアリングで活躍する遺伝的アルゴリズム</a>
-            </li>
-          
+      <h2>6. まとめ</h2>
+      <p>遺伝的アルゴリズムは、ダーウィンの進化論という19世紀の生物学的洞察が、メンデルの遺伝学、チューリングの計算理論、ホランドの数理的定式化を経て、21世紀のコンピュータ上で実際に「生命のような進化」を再現する技術へと結実したものです。gene46でスワイプする一回一回が、この壮大な知の系譜の延長線上にある——そう思うと、ゲームプレイにも新たな奥行きが感じられるのではないでしょうか。</p>
+
+      <!-- Primary References & Citation Source Links (E-E-A-T) -->
+      <div class="card" style="background: rgba(255, 255, 255, 0.015); border: 1px solid rgba(168, 85, 247, 0.15); border-radius: 12px; padding: 20px; margin-top: 30px;">
+        <h3 style="margin-top: 0; color: #f1f5f9; font-size: 1.05rem; font-weight: 700; border-bottom: 1px solid rgba(168, 85, 247, 0.2); padding-bottom: 8px; margin-bottom: 12px;">📚 参考文献・一次情報源（Citation & References）</h3>
+        <ul style="padding-left: 20px; font-size: 0.85rem; line-height: 1.9; color: #94a3b8; margin-bottom: 0;">
+          <li>Charles Darwin (1859), <em>On the Origin of Species by Means of Natural Selection</em> — <a href="https://ja.wikipedia.org/wiki/%E7%A8%AE%E3%86%E3%81%AE%E8%B5%B7%E6%BA%90" target="_blank" rel="noopener noreferrer" style="color: #c084fc;">Wikipedia 解説ページ</a></li>
+          <li>Alan Turing (1948), <em>Intelligent Machinery</em> (National Physical Laboratory Report) — <a href="https://www.turing.org.uk/" target="_blank" rel="noopener noreferrer" style="color: #c084fc;">Alan Turing Official Archive</a></li>
+          <li>John H. Holland (1975), <em>Adaptation in Natural and Artificial Systems</em>, University of Michigan Press — <a href="https://mitpress.mit.edu/9780262581110/adaptation-in-natural-and-artificial-systems/" target="_blank" rel="noopener noreferrer" style="color: #c084fc;">MIT Press 書籍情報ページ</a></li>
+          <li>遺伝的アルゴリズム（GA）の基礎概念 — <a href="https://ja.wikipedia.org/wiki/%E9%81%BA%E4%BC%9D%E7%9A%84%E3%82%A2%E3%83%AB%E3%82%B4%E3%83%AA%E3%82%BA%E3%83%A0" target="_blank" rel="noopener noreferrer" style="color: #c084fc;">Wikipedia 遺伝的アルゴリズム項目</a></li>
         </ul>
       </div>
-  
-</article>
 
+      <div class="card" style="background: rgba(168,85,247,0.01); border: 1px solid rgba(168,85,247,0.08); font-size: 0.85rem; margin-top: 40px; border-radius: 12px; padding: 20px;">
+        <h4 style="margin-top: 0; color: #c084fc; font-weight: bold; font-size: 0.95rem; margin-bottom: 8px;">この記事の執筆・監修</h4>
+        <p style="margin-bottom: 0; color: #94a3b8; line-height: 1.6;"><strong>gene46 運営・開発チーム (GA研究ユニット)</strong><br>遺伝的アルゴリズム（GA）を用いた自律進化型ジェネレーティブアートの挙動および最適化について研究・開発を行っているプロジェクトチームです。</p>
+      </div>
+      <div style="margin-top: 40px;">
+        <h3 style="font-size: 1.15rem; border-bottom: 1px solid rgba(168,85,247,0.1); padding-bottom: 8px; color: #f1f5f9; font-weight: bold;">おすすめの関連記事</h3>
+        <ul style="list-style: none; padding-left: 0; font-size: 0.9rem; line-height: 2.0; margin-top: 15px;">
+          <li style="margin-bottom: 8px;"><span style="color: #a855f7; margin-right: 6px;">👉</span><a href="/blog/ga-basics.html" style="color: #c084fc; text-decoration: none; font-weight: 600;">遺伝的アルゴリズム（GA）とは？仕組みと基本プロセス</a></li>
+          <li style="margin-bottom: 8px;"><span style="color: #a855f7; margin-right: 6px;">👉</span><a href="/blog/real-world-ga.html" style="color: #c084fc; text-decoration: none; font-weight: 600;">現実世界のエンジニアリングで活躍する遺伝的アルゴリズム</a></li>
+          <li style="margin-bottom: 8px;"><span style="color: #a855f7; margin-right: 6px;">👉</span><a href="/blog/generative-art.html" style="color: #c084fc; text-decoration: none; font-weight: 600;">AIジェネレーティブアートと生物学的進化の融合</a></li>
+        </ul>
+      </div>
+    </article>
     <footer>
       <p>&copy; 2026 gene46 Project. All rights reserved.</p>
-      <p>
-        <a href="/">アプリに戻る</a> | 
-        <a href="/terms.html">利用規約</a> | 
-        <a href="/privacy.html">プライバシーポリシー</a> | 
-        <a href="/legal.html">特定商取引法に基づく表記</a> |
-        <a href="/contact.html">お問い合わせ</a>
-      </p>
+      <p><a href="/">アプリに戻る</a> | <a href="/terms.html">利用規約</a> | <a href="/privacy.html">プライバシーポリシー</a> | <a href="/legal.html">特定商取引法に基づく表記</a> | <a href="/contact.html">お問い合わせ</a></p>
     </footer>
   </div>
 </body>

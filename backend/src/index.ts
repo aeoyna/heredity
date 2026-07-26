@@ -12,6 +12,7 @@ import {
 import { parseCookies, signJWT, verifyJWT, base64UrlToJson } from './auth';
 import { verifyGoogleIdToken } from './google-auth';
 import { mergeGameStates, GameState } from './sync-logic';
+import { handleAdminStats, handleAdminThreads, handleAdminThreadStats } from './admin';
 
 export interface Env {
   DB: D1Database;
@@ -499,17 +500,53 @@ async function handleGetGoogleCallback(request: Request, env: Env): Promise<Resp
       "SELECT * FROM user_sessions WHERE session_id = ?"
     ).bind(sessionId).first<any>();
 
-    // 2. Fetch existing session linked to this Google User S_old
-    const sOld = await env.DB.prepare(
+    // 2. Fetch existing sessions linked to this Google User S_old
+    const sOldRows = await env.DB.prepare(
       "SELECT * FROM user_sessions WHERE clerk_user_id = ?"
-    ).bind(googleUserId).first<any>();
+    ).bind(googleUserId).all<any>();
+    
+    const oldSessions = sOldRows.results ?? [];
 
-    if (sOld && sOld.session_id !== sessionId) {
-      // 3. Merge S_anon and S_old
-      const merged = mergeGameStates(parseState(sAnon), parseState(sOld));
-      const mergedSoulsVersion = Math.max(sAnon?.souls_version ?? 0, sOld.souls_version ?? 0);
+    if (oldSessions.length > 0) {
+      // 3. Merge S_anon and all S_old sessions sequentially
+      let merged = parseState(sAnon);
+      let mergedSoulsVersion = sAnon?.souls_version ?? 0;
 
-      // 4. Update the current upgraded session with the merged values and clerk_user_id
+      for (const oldSession of oldSessions) {
+        if (oldSession.session_id !== sessionId) {
+          merged = mergeGameStates(merged, parseState(oldSession));
+          mergedSoulsVersion = Math.max(mergedSoulsVersion, oldSession.souls_version ?? 0);
+        }
+      }
+
+      // 4. Transfer all database assets (assigned cards, threads, reports) and DELETE the old sessions first
+      // This prevents UNIQUE constraint violations when assigning googleUserId to the current session.
+      for (const oldSession of oldSessions) {
+        if (oldSession.session_id !== sessionId) {
+          await env.DB.prepare(
+            "UPDATE specimens SET assigned_session_id = ? WHERE assigned_session_id = ?"
+          ).bind(sessionId, oldSession.session_id).run();
+
+          await env.DB.prepare(
+            "UPDATE threads SET creator_session_id = ? WHERE creator_session_id = ?"
+          ).bind(sessionId, oldSession.session_id).run();
+
+          await env.DB.prepare(
+            "UPDATE reports SET session_id = ? WHERE session_id = ?"
+          ).bind(sessionId, oldSession.session_id).run();
+
+          await env.DB.prepare(
+            "UPDATE soul_grants SET session_id = ? WHERE session_id = ?"
+          ).bind(sessionId, oldSession.session_id).run();
+
+          // Delete S_old row
+          await env.DB.prepare(
+            "DELETE FROM user_sessions WHERE session_id = ?"
+          ).bind(oldSession.session_id).run();
+        }
+      }
+
+      // 5. Update the current upgraded session with the merged values and clerk_user_id
       await env.DB.prepare(
         `UPDATE user_sessions
          SET clerk_user_id = ?,
@@ -522,7 +559,8 @@ async function handleGetGoogleCallback(request: Request, env: Env): Promise<Resp
              is_ad_free = ?,
              outs = ?,
              last_out_recovery_time = ?,
-             swipes_since_last_out_recovery = ?
+             swipes_since_last_out_recovery = ?,
+             stamina_speed_level = ?
          WHERE session_id = ?`
       ).bind(
         googleUserId,
@@ -536,30 +574,9 @@ async function handleGetGoogleCallback(request: Request, env: Env): Promise<Resp
         merged.outs ?? 0,
         merged.lastOutRecoveryTime ?? 0,
         merged.swipesSinceLastOutRecovery ?? 0,
+        merged.staminaSpeedLevel ?? 0,
         sessionId
       ).run();
-
-      // 5. Transfer all database assets (assigned cards, threads, reports) from S_old to current sessionId
-      await env.DB.prepare(
-        "UPDATE specimens SET assigned_session_id = ? WHERE assigned_session_id = ?"
-      ).bind(sessionId, sOld.session_id).run();
-
-      await env.DB.prepare(
-        "UPDATE threads SET creator_session_id = ? WHERE creator_session_id = ?"
-      ).bind(sessionId, sOld.session_id).run();
-
-      await env.DB.prepare(
-        "UPDATE reports SET session_id = ? WHERE session_id = ?"
-      ).bind(sessionId, sOld.session_id).run();
-
-      await env.DB.prepare(
-        "UPDATE soul_grants SET session_id = ? WHERE session_id = ?"
-      ).bind(sessionId, sOld.session_id).run();
-
-      // 6. Delete S_old row
-      await env.DB.prepare(
-        "DELETE FROM user_sessions WHERE session_id = ?"
-      ).bind(sOld.session_id).run();
     } else {
       // 7. First time authentication: just upgrade session record to authenticated
       if (!sAnon) {
@@ -627,6 +644,14 @@ async function handleGetAuthMe(request: Request, env: Env): Promise<Response> {
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    // Redirect www.gene46.net to gene46.net (apex domain) to avoid ads.txt detection issues
+    if (url.hostname === 'www.gene46.net') {
+      const targetUrl = new URL(request.url);
+      targetUrl.hostname = 'gene46.net';
+      targetUrl.protocol = 'https:';
+      return Response.redirect(targetUrl.toString(), 301);
+    }
 
     // Custom Social Media UTM Redirects
     const socialRedirects: Record<string, string> = {
@@ -720,6 +745,15 @@ export default {
       if (url.pathname === '/api/admin/run-ga' && request.method === 'POST') {
         return await handleAdminRunGA(request, env);
       }
+      if (url.pathname === '/api/admin/stats' && (request.method === 'GET' || request.method === 'OPTIONS')) {
+        return await handleAdminStats(request, env);
+      }
+      if (url.pathname === '/api/admin/threads' && (request.method === 'GET' || request.method === 'OPTIONS')) {
+        return await handleAdminThreads(request, env);
+      }
+      if (url.pathname === '/api/admin/thread-stats' && (request.method === 'GET' || request.method === 'OPTIONS')) {
+        return await handleAdminThreadStats(request, env);
+      }
 
       // Authenticated endpoints
       if (url.pathname.startsWith('/api/')) {
@@ -800,19 +834,33 @@ async function handleGetGeo(request: Request, env: Env): Promise<Response> {
 async function handleGetThreads(request: Request, env: Env): Promise<Response> {
   const { results } = await env.DB.prepare(
     `SELECT
-       id, name, type, creator_session_id, created_at,
-       current_generation AS generation, total_swipes
-     FROM threads
+       t.id, t.name, t.type, t.creator_session_id, t.created_at,
+       t.current_generation AS generation, t.total_swipes,
+       s.dna AS preview_dna
+     FROM threads t
+     LEFT JOIN (
+       SELECT thread_id, dna
+       FROM specimens
+       WHERE status = 'active' AND is_honeypot = 0
+       GROUP BY thread_id
+       HAVING generation = MAX(generation)
+     ) s ON s.thread_id = t.id
      ORDER BY
-       (total_swipes + 1.0)
+       (t.total_swipes + 1.0)
        / exp(1.5 * log(
-           (CAST(strftime('%s', 'now') AS REAL) - CAST(strftime('%s', created_at) AS REAL))
+           (CAST(strftime('%s', 'now') AS REAL) - CAST(strftime('%s', t.created_at) AS REAL))
            / 3600.0 + 2.0
          ))
        DESC`
-  ).all<{ id: string; name: string; type: string; creator_session_id: string | null; created_at: string; generation: number; total_swipes: number }>();
+  ).all<{ id: string; name: string; type: string; creator_session_id: string | null; created_at: string; generation: number; total_swipes: number; preview_dna: string | null }>();
 
-  return new Response(JSON.stringify({ threads: results }), {
+  // Parse preview_dna JSON strings
+  const threads = (results ?? []).map(row => ({
+    ...row,
+    preview_dna: row.preview_dna ? JSON.parse(row.preview_dna) : null
+  }));
+
+  return new Response(JSON.stringify({ threads }), {
     headers: { 'Content-Type': 'application/json', ...corsHeaders() }
   });
 }
@@ -880,11 +928,11 @@ async function handlePostThread(
     let dna;
     if (type === 'line') {
       if (isHoneypot) {
-        dna = generateHoneypotLineDNA();
+        dna = generateHoneypotLineDNA(lineCountValue);
       } else if (fork_dna && Array.isArray(fork_dna)) {
         dna = mutateLineDNA(fork_dna as LineDNA);
       } else {
-        dna = generateRandomLineDNA();
+        dna = generateRandomLineDNA(lineCountValue);
       }
     } else {
       if (isHoneypot) {
@@ -969,6 +1017,12 @@ async function handleGetCards(
       headers: { 'Content-Type': 'application/json', ...corsHeaders(request) }
     });
   }
+
+  // 0.5 Release expired card assignments (older than 20 minutes) to prevent deadlock
+  const twentyMinutesAgo = new Date(Date.now() - 20 * 60 * 1000).toISOString();
+  await env.DB.prepare(
+    "UPDATE specimens SET assigned_session_id = NULL, assigned_at = NULL WHERE thread_id = ? AND assigned_session_id IS NOT NULL AND assigned_at < ?"
+  ).bind(threadId, twentyMinutesAgo).run();
 
   // 1. Get the current active generation
   const currentGenRow = await env.DB.prepare(
@@ -1169,6 +1223,8 @@ async function handlePostSwipe(request: Request, env: Env, session: { session_id
 interface BulkSwipeItem {
   card_id: string;
   swipe: 'like' | 'nope';
+  generation: number;
+  duration_ms?: number;
 }
 
 async function handlePostSwipeBulk(
@@ -1252,7 +1308,7 @@ async function handlePostSwipeBulk(
     });
   }
 
-  // 4. Batch update vote counts (skip honeypot assets)
+  // 4. Batch update vote counts and insert logs (skip update for honeypots but log everything)
   const statements = [];
   for (const item of swipes) {
     if (item.swipe === 'like') {
@@ -1264,6 +1320,23 @@ async function handlePostSwipeBulk(
         env.DB.prepare("UPDATE specimens SET nopes_count = nopes_count + 1 WHERE id = ? AND is_honeypot = 0").bind(item.card_id)
       );
     }
+
+    const logId = `swipe_${crypto.randomUUID()}`;
+    statements.push(
+      env.DB.prepare(`
+        INSERT INTO swipe_logs (id, session_id, thread_id, specimen_id, generation, vote, duration_ms, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        logId,
+        sessionId,
+        thread_id,
+        item.card_id,
+        item.generation,
+        item.swipe,
+        item.duration_ms ?? 0,
+        nowStr
+      )
+    );
   }
 
   // Increment denormalized total_swipes on threads table
@@ -1373,11 +1446,11 @@ async function handleGetThreadHistory(request: Request, env: Env): Promise<Respo
     });
   }
 
-  // Read precomputed history snapshots instead of scanning archived specimens.
+  // Read precomputed history snapshots instead of scanning archived specimens. Filter to 100-gen intervals for client performance.
   const { results } = await env.DB.prepare(
     `SELECT generation, specimen_id AS id, dna, likes_count, nopes_count
      FROM thread_history
-     WHERE thread_id = ?
+     WHERE thread_id = ? AND generation % 100 = 0
      ORDER BY generation DESC`
   ).bind(threadId).all<{ id: string; generation: number; dna: string; likes_count: number; nopes_count: number }>();
 
@@ -1407,10 +1480,10 @@ async function handlePostDeleteThread(request: Request, env: Env, session: { ses
     });
   }
 
-  // Fetch thread to check creator
+  // Fetch thread to check creator and type
   const thread = await env.DB.prepare(
-    "SELECT creator_session_id FROM threads WHERE id = ?"
-  ).bind(thread_id).first<{ creator_session_id: string | null }>();
+    "SELECT creator_session_id, type FROM threads WHERE id = ?"
+  ).bind(thread_id).first<{ creator_session_id: string | null; type: string }>();
 
   if (!thread) {
     return new Response(JSON.stringify({ error: 'Thread not found' }), {
@@ -1426,13 +1499,20 @@ async function handlePostDeleteThread(request: Request, env: Env, session: { ses
     });
   }
 
-  // Delete specimens and thread in batch
+  // Determine soul refund based on thread type
+  const REFUND_SOULS: Record<string, number> = { line: 1000, mosaic: 2500 };
+  const refundedSouls = REFUND_SOULS[thread.type] ?? 0;
+
+  // Delete specimens and thread in batch, then refund souls
   await env.DB.batch([
     env.DB.prepare("DELETE FROM specimens WHERE thread_id = ?").bind(thread_id),
-    env.DB.prepare("DELETE FROM threads WHERE id = ?").bind(thread_id)
+    env.DB.prepare("DELETE FROM threads WHERE id = ?").bind(thread_id),
+    ...(refundedSouls > 0
+      ? [env.DB.prepare("UPDATE user_sessions SET souls = souls + ? WHERE session_id = ?").bind(refundedSouls, session_id)]
+      : [])
   ]);
 
-  return new Response(JSON.stringify({ success: true }), {
+  return new Response(JSON.stringify({ success: true, refunded_souls: refundedSouls }), {
     headers: { 'Content-Type': 'application/json', ...corsHeaders(request) }
   });
 }
@@ -1540,6 +1620,7 @@ async function handlePostStaminaSync(
     outs?: number;
     lastOutRecoveryTime?: number;
     swipesSinceLastOutRecovery?: number;
+    staminaSpeedLevel?: number;
   }>().catch(() => null);
 
   if (!clientState) {
@@ -1558,8 +1639,16 @@ async function handlePostStaminaSync(
     // If session doesn't exist, create it
     const now = Date.now();
     await env.DB.prepare(
-      "INSERT INTO user_sessions (session_id, stamina, max_stamina, last_recovery_time, souls, souls_version) VALUES (?, ?, ?, ?, ?, ?)"
-    ).bind(sessionId, clientState.stamina ?? 80, clientState.maxStamina ?? 80, clientState.lastRecoveryTime ?? now, clientState.souls ?? 0, clientState.soulsVersion ?? 0).run();
+      "INSERT INTO user_sessions (session_id, stamina, max_stamina, last_recovery_time, souls, souls_version, stamina_speed_level) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    ).bind(
+      sessionId,
+      clientState.stamina ?? 80,
+      clientState.maxStamina ?? 80,
+      clientState.lastRecoveryTime ?? now,
+      clientState.souls ?? 0,
+      clientState.soulsVersion ?? 0,
+      clientState.staminaSpeedLevel ?? 0
+    ).run();
     
     serverRow = {
       stamina: clientState.stamina ?? 80,
@@ -1571,7 +1660,8 @@ async function handlePostStaminaSync(
       is_ad_free: clientState.isAdFree ? 1 : 0,
       outs: clientState.outs ?? 0,
       last_out_recovery_time: clientState.lastOutRecoveryTime ?? 0,
-      swipes_since_last_out_recovery: clientState.swipesSinceLastOutRecovery ?? 0
+      swipes_since_last_out_recovery: clientState.swipesSinceLastOutRecovery ?? 0,
+      stamina_speed_level: clientState.staminaSpeedLevel ?? 0
     };
   }
 
@@ -1586,7 +1676,8 @@ async function handlePostStaminaSync(
     isAdFree: clientState.isAdFree ?? false,
     outs: clientState.outs ?? 0,
     lastOutRecoveryTime: clientState.lastOutRecoveryTime ?? 0,
-    swipesSinceLastOutRecovery: clientState.swipesSinceLastOutRecovery ?? 0
+    swipesSinceLastOutRecovery: clientState.swipesSinceLastOutRecovery ?? 0,
+    staminaSpeedLevel: clientState.staminaSpeedLevel ?? 0
   };
 
   const serverParsed: GameState = {
@@ -1598,7 +1689,8 @@ async function handlePostStaminaSync(
     isAdFree: (serverRow.is_ad_free ?? 0) === 1,
     outs: serverRow.outs ?? 0,
     lastOutRecoveryTime: serverRow.last_out_recovery_time ?? 0,
-    swipesSinceLastOutRecovery: serverRow.swipes_since_last_out_recovery ?? 0
+    swipesSinceLastOutRecovery: serverRow.swipes_since_last_out_recovery ?? 0,
+    staminaSpeedLevel: serverRow.stamina_speed_level ?? 0
   };
 
   // 2. Merge states using standard conflict resolution
@@ -1627,7 +1719,8 @@ async function handlePostStaminaSync(
     merged.isAdFree !== serverParsed.isAdFree ||
     (merged.outs ?? 0) !== (serverParsed.outs ?? 0) ||
     (merged.lastOutRecoveryTime ?? 0) !== (serverParsed.lastOutRecoveryTime ?? 0) ||
-    (merged.swipesSinceLastOutRecovery ?? 0) !== (serverParsed.swipesSinceLastOutRecovery ?? 0);
+    (merged.swipesSinceLastOutRecovery ?? 0) !== (serverParsed.swipesSinceLastOutRecovery ?? 0) ||
+    merged.staminaSpeedLevel !== serverParsed.staminaSpeedLevel;
 
   if (shouldPersist) {
     await env.DB.prepare(
@@ -1641,7 +1734,8 @@ async function handlePostStaminaSync(
            is_ad_free = ?,
            outs = ?,
            last_out_recovery_time = ?,
-           swipes_since_last_out_recovery = ?
+           swipes_since_last_out_recovery = ?,
+           stamina_speed_level = ?
        WHERE session_id = ?`
     ).bind(
       merged.stamina,
@@ -1654,6 +1748,7 @@ async function handlePostStaminaSync(
       merged.outs ?? 0,
       merged.lastOutRecoveryTime ?? 0,
       merged.swipesSinceLastOutRecovery ?? 0,
+      merged.staminaSpeedLevel ?? 0,
       sessionId
     ).run();
   }

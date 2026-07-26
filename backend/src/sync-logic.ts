@@ -8,11 +8,16 @@ export interface GameState {
   outs?: number;
   lastOutRecoveryTime?: number;
   swipesSinceLastOutRecovery?: number;
+  staminaSpeedLevel?: number;
+}
+
+export function getRecoveryInterval(level: number = 0): number {
+  const lvl = Math.min(30, Math.max(0, level || 0));
+  return 60000 * (1 - lvl / 100);
 }
 
 export function mergeGameStates(client: GameState, server: GameState): GameState {
   const now = Date.now();
-  const RECOVERY_INTERVAL = 60000; // 60 seconds
   const OUT_RECOVERY_INTERVAL = 3600000; // 1 hour (3600000 ms)
 
   // 1. Establish the merged base values
@@ -20,6 +25,8 @@ export function mergeGameStates(client: GameState, server: GameState): GameState
   const souls = Math.max(client.souls, server.souls);
   const lifetimeSwipes = Math.max(client.lifetimeSwipes, server.lifetimeSwipes);
   const isAdFree = client.isAdFree || server.isAdFree;
+  const staminaSpeedLevel = Math.max(client.staminaSpeedLevel ?? 0, server.staminaSpeedLevel ?? 0);
+  const RECOVERY_INTERVAL = getRecoveryInterval(staminaSpeedLevel);
 
   // 2. Compute dynamic stamina recovery based on elapsed time
   let clientCalculatedStamina = client.stamina;
@@ -111,6 +118,8 @@ export function mergeGameStates(client: GameState, server: GameState): GameState
     isAdFree,
     outs,
     lastOutRecoveryTime,
-    swipesSinceLastOutRecovery
+    swipesSinceLastOutRecovery,
+    staminaSpeedLevel
   };
 }
+
