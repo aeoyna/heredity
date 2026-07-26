@@ -320,6 +320,8 @@ export default function App() {
   const [newLineCount, setNewLineCount] = useState<number>(10);
   const [creatingThread, setCreatingThread] = useState<boolean>(false);
   const [showStaminaModal, setShowStaminaModal] = useState<boolean>(false);
+  const [showLoginBonusModal, setShowLoginBonusModal] = useState<boolean>(false);
+  const [loginBonusDetails, setLoginBonusDetails] = useState<{ souls: number } | null>(null);
 
   // History Gallery State
   const [showHistoryModal, setShowHistoryModal] = useState<boolean>(false);
@@ -522,6 +524,12 @@ export default function App() {
           };
           localStorage.setItem('project_x_stamina_data', serializeAndSign(nextData));
           setStaminaData(nextData);
+
+          if (json.login_bonus_awarded) {
+            setLoginBonusDetails({ souls: json.login_bonus_awarded.souls });
+            setShowLoginBonusModal(true);
+            playEvolve();
+          }
         }
       }
     } catch (e) {
@@ -5079,6 +5087,69 @@ export default function App() {
                   </button>
                 </div>
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Login Bonus Modal */}
+      <AnimatePresence>
+        {showLoginBonusModal && loginBonusDetails && (
+          <div 
+            onClick={() => setShowLoginBonusModal(false)}
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-6"
+          >
+            <motion.div
+              onClick={(e) => e.stopPropagation()}
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="w-full max-w-sm bg-[#0a0b10] border border-purple-500/20 rounded-2xl p-6 shadow-2xl relative overflow-hidden text-center flex flex-col items-center justify-center gap-4 border border-purple-500/20 shadow-purple-950/20 animate-fade-in"
+            >
+              {/* Close Button */}
+              <button
+                onClick={() => setShowLoginBonusModal(false)}
+                className="absolute top-4 right-4 p-1 text-gray-500 hover:text-gray-300 rounded-lg hover:bg-gray-900 transition-colors z-20"
+                title={lang === 'ja' ? '閉じる' : 'Close'}
+              >
+                <X className="w-4 h-4" />
+              </button>
+
+              <div className="absolute top-[-20%] left-[-20%] w-[60%] h-[60%] rounded-full bg-purple-900/25 blur-[50px] pointer-events-none" />
+              
+              {/* Sparkle Icon with animated bounce */}
+              <div className="relative p-4 rounded-2xl bg-gradient-to-tr from-purple-500 to-indigo-600 shadow-xl shadow-purple-500/20 mt-2">
+                <Sparkles className="w-8 h-8 text-white animate-pulse" />
+              </div>
+
+              <div>
+                <h3 className="text-base font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-fuchsia-300 to-indigo-400 tracking-wider uppercase">
+                  {lang === 'ja' ? 'ログインボーナス獲得！' : 'Daily Login Bonus!'}
+                </h3>
+                <p className="text-gray-400 text-[10px] mt-1 uppercase tracking-widest">
+                  {lang === 'ja' ? '毎日貰えるプレゼント' : 'A daily reward just for you'}
+                </p>
+              </div>
+
+              {/* Bonus Amount Container */}
+              <div className="w-full bg-white/[0.02] border border-white/[0.05] rounded-xl p-4 flex items-center justify-center gap-2.5 relative overflow-hidden">
+                <div className="absolute inset-0 bg-purple-500/[0.02] blur-xl pointer-events-none" />
+                <div className="flex items-center gap-1.5 text-cyan-300 font-bold text-base drop-shadow-[0_0_8px_rgba(34,211,238,0.3)] animate-pulse">
+                  <Diamond className="w-4 h-4 fill-cyan-400" />
+                  <span className="font-mono text-lg font-black">+{loginBonusDetails.souls}</span>
+                  <span className="text-xs text-cyan-400/80 font-bold uppercase tracking-wider">Souls</span>
+                </div>
+              </div>
+
+              <button
+                onClick={() => {
+                  playClick();
+                  setShowLoginBonusModal(false);
+                }}
+                className="w-full py-2.5 px-4 text-white bg-gradient-to-r from-purple-600 to-indigo-500 hover:from-purple-500 hover:to-indigo-400 rounded-2xl transition-all shadow-md active:scale-[0.98] border border-purple-500/20 font-bold text-xs"
+              >
+                {lang === 'ja' ? '受け取る' : 'Claim Reward'}
+              </button>
             </motion.div>
           </div>
         )}

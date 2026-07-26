@@ -1635,19 +1635,27 @@ async function handlePostStaminaSync(
     "SELECT * FROM user_sessions WHERE session_id = ?"
   ).bind(sessionId).first<any>();
 
+  const todayJST = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  let loginBonusAwarded: { souls: number } | undefined = undefined;
+
   if (!serverRow) {
-    // If session doesn't exist, create it
+    // If session doesn't exist, create it and grant the login bonus immediately
     const now = Date.now();
+    loginBonusAwarded = { souls: 10 };
+    const initialSouls = (clientState.souls ?? 0) + 10;
+    const initialSoulsVersion = (clientState.soulsVersion ?? 0) + 1;
+
     await env.DB.prepare(
-      "INSERT INTO user_sessions (session_id, stamina, max_stamina, last_recovery_time, souls, souls_version, stamina_speed_level) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO user_sessions (session_id, stamina, max_stamina, last_recovery_time, souls, souls_version, stamina_speed_level, last_login_bonus_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
     ).bind(
       sessionId,
       clientState.stamina ?? 80,
       clientState.maxStamina ?? 80,
       clientState.lastRecoveryTime ?? now,
-      clientState.souls ?? 0,
-      clientState.soulsVersion ?? 0,
-      clientState.staminaSpeedLevel ?? 0
+      initialSouls,
+      initialSoulsVersion,
+      clientState.staminaSpeedLevel ?? 0,
+      todayJST
     ).run();
     
     serverRow = {
@@ -1655,14 +1663,28 @@ async function handlePostStaminaSync(
       max_stamina: clientState.maxStamina ?? 80,
       lifetime_swipes: clientState.lifetimeSwipes ?? 0,
       last_recovery_time: clientState.lastRecoveryTime ?? now,
-      souls: clientState.souls ?? 0,
-      souls_version: clientState.soulsVersion ?? 0,
+      souls: initialSouls,
+      souls_version: initialSoulsVersion,
       is_ad_free: clientState.isAdFree ? 1 : 0,
       outs: clientState.outs ?? 0,
       last_out_recovery_time: clientState.lastOutRecoveryTime ?? 0,
       swipes_since_last_out_recovery: clientState.swipesSinceLastOutRecovery ?? 0,
-      stamina_speed_level: clientState.staminaSpeedLevel ?? 0
+      stamina_speed_level: clientState.staminaSpeedLevel ?? 0,
+      last_login_bonus_date: todayJST
     };
+  } else {
+    // Check if the user is eligible for a login bonus today (JST)
+    if (serverRow.last_login_bonus_date !== todayJST) {
+      loginBonusAwarded = { souls: 10 };
+      serverRow.souls = (serverRow.souls ?? 0) + 10;
+      serverRow.souls_version = (serverRow.souls_version ?? 0) + 1;
+      serverRow.last_login_bonus_date = todayJST;
+
+      // Update in DB immediately to prevent double claims
+      await env.DB.prepare(
+        "UPDATE user_sessions SET last_login_bonus_date = ?, souls = ?, souls_version = ? WHERE session_id = ?"
+      ).bind(todayJST, serverRow.souls, serverRow.souls_version, sessionId).run();
+    }
   }
 
   const clientSoulsVersion = clientState.soulsVersion ?? 0;
@@ -1753,7 +1775,11 @@ async function handlePostStaminaSync(
     ).run();
   }
 
-  return new Response(JSON.stringify({ success: true, state: { ...merged, soulsVersion: reconciledSouls.soulsVersion } }), {
+  return new Response(JSON.stringify({
+    success: true,
+    state: { ...merged, soulsVersion: reconciledSouls.soulsVersion },
+    ...(loginBonusAwarded ? { login_bonus_awarded: loginBonusAwarded } : {})
+  }), {
     headers: { 'Content-Type': 'application/json', ...corsHeaders(request) }
   });
 }

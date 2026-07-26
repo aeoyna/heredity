@@ -61,7 +61,8 @@ CREATE TABLE IF NOT EXISTS user_sessions (
     outs INTEGER DEFAULT 0,
     last_out_recovery_time INTEGER DEFAULT 0,
     swipes_since_last_out_recovery INTEGER DEFAULT 0,
-    souls_version INTEGER DEFAULT 0
+    souls_version INTEGER DEFAULT 0,
+    last_login_bonus_date TEXT
 );
 
 CREATE TABLE IF NOT EXISTS soul_grants (
